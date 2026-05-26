@@ -92,6 +92,7 @@ func (s *AuthService) Register(req *models.RegisterRequest) (*models.AuthRespons
 		UserID:   user.ID,
 		Username: user.Username,
 		Email:    user.Email,
+		Role:     user.Role,
 	}, nil
 }
 
@@ -118,6 +119,7 @@ func (s *AuthService) Login(req *models.LoginRequest) (*models.AuthResponse, err
 		UserID:   user.ID,
 		Username: user.Username,
 		Email:    user.Email,
+		Role:     user.Role,
 	}, nil
 }
 
@@ -126,6 +128,7 @@ func (s *AuthService) generateToken(user *models.User) (string, error) {
 		"user_id":  user.ID,
 		"email":    user.Email,
 		"username": user.Username,
+		"role":     user.Role,
 		"exp":      time.Now().Add(7 * 24 * time.Hour).Unix(),
 		"iat":      time.Now().Unix(),
 	}

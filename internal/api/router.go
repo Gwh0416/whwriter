@@ -57,6 +57,7 @@ func SetupRouter(cfg *config.Config, dbStore *store.UserStore, authSvc *service.
 					"user_id":  c.GetUint("user_id"),
 					"email":    c.GetString("email"),
 					"username": c.GetString("username"),
+					"role":     c.GetString("role"),
 				})
 			})
 		}
