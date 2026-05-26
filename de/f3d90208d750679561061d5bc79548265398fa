@@ -1,0 +1,149 @@
+pkg/models/user.go
+  dcdc0fe58aeaf8d4 15,33 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a159761afa96ab5e0fd9017","tool_type":"agent","tool_id":"SearchReplace","line_ranges":[{"Single":15},{"Single":33}]}]}
+internal/service/auth.go
+  dcdc0fe58aeaf8d4 22,48-51,161-165 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a159761afa96ab5e0fd9017","tool_type":"agent","tool_id":"SearchReplace","line_ranges":[{"Single":22},{"Range":[48,51]},{"Range":[161,165]}]}]}
+web/src/views/Login.vue
+  dcdc0fe58aeaf8d4 45,131-138 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a159761afa96ab5e0fd9017","tool_type":"agent","tool_id":"SearchReplace","line_ranges":[{"Single":45},{"Range":[131,138]}]}]}
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "def3d90208d750679561061d5bc79548265398fa",
+  "prompts": {
+    "dcdc0fe58aeaf8d4": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a154808afa96ab5e0fd8979",
+        "model": "DeepSeek-V4-Pro__dev"
+      },
+      "human_author": "gaowenhao.0416 <gaowenhao.0416@bytedance.com>",
+      "messages": [],
+      "total_additions": 21,
+      "total_deletions": 3,
+      "accepted_lines": 21,
+      "overriden_lines": 0
+    }
+  },
+  "attestation_metadata": {
+    "internal/service/auth.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Single": 22
+          },
+          {
+            "Range": [
+              48,
+              51
+            ]
+          },
+          {
+            "Range": [
+              161,
+              165
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a159761afa96ab5e0fd9017",
+            "tool_type": "agent",
+            "tool_id": "SearchReplace",
+            "line_ranges": [
+              {
+                "Single": 22
+              },
+              {
+                "Range": [
+                  48,
+                  51
+                ]
+              },
+              {
+                "Range": [
+                  161,
+                  165
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "pkg/models/user.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Single": 15
+          },
+          {
+            "Single": 33
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a159761afa96ab5e0fd9017",
+            "tool_type": "agent",
+            "tool_id": "SearchReplace",
+            "line_ranges": [
+              {
+                "Single": 15
+              },
+              {
+                "Single": 33
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "web/src/views/Login.vue": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Single": 45
+          },
+          {
+            "Range": [
+              131,
+              138
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a159761afa96ab5e0fd9017",
+            "tool_type": "agent",
+            "tool_id": "SearchReplace",
+            "line_ranges": [
+              {
+                "Single": 45
+              },
+              {
+                "Range": [
+                  131,
+                  138
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "remote_transcripts": {
+    "dcdc0fe58aeaf8d4": {
+      "tool": "trae",
+      "conversation_id": "6a154808afa96ab5e0fd8979",
+      "session_id": "6a154808afa96ab5e0fd8979",
+      "status": "remote_only",
+      "message": "Remote transcript resolution is not implemented yet for TRAE prompts."
+    }
+  }
+}
