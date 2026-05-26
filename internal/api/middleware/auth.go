@@ -42,7 +42,7 @@ func Auth(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		c.Set("user_id", int64(claims["user_id"].(float64)))
+		c.Set("user_id", uint(claims["user_id"].(float64)))
 		c.Set("email", claims["email"])
 		c.Set("username", claims["username"])
 

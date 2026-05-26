@@ -3,12 +3,21 @@ package models
 import "time"
 
 type User struct {
-	ID           int64     `json:"id" db:"id"`
-	Email        string    `json:"email" db:"email"`
-	Username     string    `json:"username" db:"username"`
-	PasswordHash string    `json:"-" db:"password_hash"`
-	CreatedAt    time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
+	ID           uint      `json:"id" gorm:"primaryKey"`
+	Email        string    `json:"email" gorm:"uniqueIndex;size:255;not null"`
+	Username     string    `json:"username" gorm:"uniqueIndex;size:64;not null"`
+	PasswordHash string    `json:"-" gorm:"size:255;not null"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+type EmailVerification struct {
+	ID        uint      `json:"id" gorm:"primaryKey"`
+	Email     string    `json:"email" gorm:"size:255;not null;index:idx_email_code"`
+	Code      string    `json:"code" gorm:"size:6;not null;index:idx_email_code"`
+	ExpiresAt time.Time `json:"expires_at" gorm:"not null"`
+	Used      bool      `json:"used" gorm:"default:false"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type RegisterRequest struct {
@@ -29,7 +38,7 @@ type SendCodeRequest struct {
 
 type AuthResponse struct {
 	Token    string `json:"token"`
-	UserID   int64  `json:"user_id"`
+	UserID   uint   `json:"user_id"`
 	Username string `json:"username"`
 	Email    string `json:"email"`
 }

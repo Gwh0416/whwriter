@@ -22,10 +22,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	defer db.Close()
+	sqlDB, _ := db.DB()
+	defer sqlDB.Close()
 
 	userStore := store.NewUserStore(db)
-	emailSvc := service.NewEmailService()
+	emailSvc := service.NewEmailService(cfg.SMTP)
 	authSvc := service.NewAuthService(userStore, emailSvc, cfg)
 
 	router := api.SetupRouter(cfg, userStore, authSvc)

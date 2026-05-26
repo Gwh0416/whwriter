@@ -1,26 +1,39 @@
 package store
 
 import (
-	"database/sql"
 	"fmt"
 	"log"
 
-	_ "github.com/go-sql-driver/mysql"
+	"whwriter/pkg/models"
+
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
-func NewDB(dsn string) (*sql.DB, error) {
-	db, err := sql.Open("mysql", dsn)
+func NewDB(dsn string) (*gorm.DB, error) {
+	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Warn),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("open mysql: %w", err)
 	}
 
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(5)
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, err
+	}
+	sqlDB.SetMaxOpenConns(25)
+	sqlDB.SetMaxIdleConns(5)
 
-	if err := db.Ping(); err != nil {
+	if err := sqlDB.Ping(); err != nil {
 		return nil, fmt.Errorf("ping mysql: %w", err)
 	}
 
-	log.Println("mysql connected")
+	if err := db.AutoMigrate(&models.User{}, &models.EmailVerification{}); err != nil {
+		return nil, fmt.Errorf("auto migrate: %w", err)
+	}
+
+	log.Println("mysql connected and migrated")
 	return db, nil
 }

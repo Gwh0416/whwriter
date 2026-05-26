@@ -23,9 +23,18 @@ func SetupRouter(cfg *config.Config, dbStore *store.UserStore, authSvc *service.
 
 	r.GET("/health", handler.Health)
 
-	r.StaticFile("/", "./web/index.html")
-	r.StaticFile("/favicon.ico", "./web/favicon.ico")
-	r.Static("/static", "./web/static")
+	r.Static("/assets", "./web/dist/assets")
+	r.StaticFile("/favicon.ico", "./web/dist/favicon.ico")
+	r.GET("/", func(c *gin.Context) {
+		c.File("./web/dist/index.html")
+	})
+	r.NoRoute(func(c *gin.Context) {
+		if c.Request.Method == "GET" && c.NegotiateFormat(gin.MIMEHTML) == gin.MIMEHTML {
+			c.File("./web/dist/index.html")
+		} else {
+			c.JSON(404, gin.H{"error": "not found"})
+		}
+	})
 
 	authHandler := handler.NewAuthHandler(authSvc)
 
@@ -45,7 +54,7 @@ func SetupRouter(cfg *config.Config, dbStore *store.UserStore, authSvc *service.
 		{
 			protected.GET("/me", func(c *gin.Context) {
 				c.JSON(200, gin.H{
-					"user_id":  c.GetInt64("user_id"),
+					"user_id":  c.GetUint("user_id"),
 					"email":    c.GetString("email"),
 					"username": c.GetString("username"),
 				})

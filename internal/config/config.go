@@ -15,6 +15,15 @@ type Config struct {
 	Port      string
 	MySQLDSN  string
 	JWTSecret string
+	SMTP      SMTPConfig
+}
+
+type SMTPConfig struct {
+	Host     string
+	Port     string
+	User     string
+	Password string
+	From     string
 }
 
 func Load() *Config {
@@ -24,6 +33,13 @@ func Load() *Config {
 		Port:      getEnv("APP_PORT", "8080"),
 		MySQLDSN:  getEnv("MYSQL_DSN", "whwriter:whwriter123@tcp(127.0.0.1:3306)/whwriter?charset=utf8mb4&parseTime=True&loc=Local"),
 		JWTSecret: getEnv("JWT_SECRET", "whwriter-jwt-secret-change-in-production"),
+		SMTP: SMTPConfig{
+			Host:     getEnv("SMTP_HOST", ""),
+			Port:     getEnv("SMTP_PORT", "587"),
+			User:     getEnv("SMTP_USER", ""),
+			Password: getEnv("SMTP_PASSWORD", ""),
+			From:     getEnv("SMTP_FROM", ""),
+		},
 	}
 }
 
