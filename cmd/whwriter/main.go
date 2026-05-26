@@ -25,6 +25,8 @@ func main() {
 	sqlDB, _ := db.DB()
 	defer sqlDB.Close()
 
+	store.SeedAdmin(db, cfg.Admin.Email, cfg.Admin.Username, cfg.Admin.Password)
+
 	userStore := store.NewUserStore(db)
 	emailSvc := service.NewEmailService(cfg.SMTP)
 	authSvc := service.NewAuthService(userStore, emailSvc, cfg)
