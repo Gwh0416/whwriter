@@ -2,12 +2,15 @@ import { createApp } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
 import Login from './views/Login.vue'
-import Home from './views/Home.vue'
+import Admin from './views/Admin.vue'
+import Write from './views/Write.vue'
 import './style.css'
 
 const routes = [
-  { path: '/', component: Home, meta: { requiresAuth: true } },
+  { path: '/admin', component: Admin, meta: { requiresAuth: true, role: 'admin' } },
+  { path: '/write', component: Write, meta: { requiresAuth: true, role: 'user' } },
   { path: '/login', component: Login },
+  { path: '/:pathMatch(.*)*', redirect: '/login' },
 ]
 
 const router = createRouter({
@@ -17,13 +20,33 @@ const router = createRouter({
 
 router.beforeEach((to, from, next) => {
   const token = localStorage.getItem('token')
-  if (to.meta.requiresAuth && !token) {
-    next('/login')
-  } else if (to.path === '/login' && token) {
-    next('/')
-  } else {
-    next()
+  const role = localStorage.getItem('role')
+
+  if (to.path === '/login') {
+    if (token) {
+      next(role === 'admin' ? '/admin' : '/write')
+    } else {
+      next()
+    }
+    return
   }
+
+  if (!token) {
+    next('/login')
+    return
+  }
+
+  if (to.meta.role && to.meta.role !== role) {
+    next(role === 'admin' ? '/admin' : '/write')
+    return
+  }
+
+  if (to.path === '/') {
+    next(role === 'admin' ? '/admin' : '/write')
+    return
+  }
+
+  next()
 })
 
 createApp(App).use(router).mount('#app')

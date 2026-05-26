@@ -117,7 +117,8 @@ async function handleLogin() {
   loginLoading.value = false
   if (status === 200) {
     localStorage.setItem('token', data.token)
-    router.push('/')
+    localStorage.setItem('role', data.role)
+    router.push(data.role === 'admin' ? '/admin' : '/write')
   } else {
     loginError.value = data.error || '登录失败'
   }
@@ -131,7 +132,8 @@ async function handleRegister() {
   registerLoading.value = false
   if (status === 201) {
     localStorage.setItem('token', data.token)
-    router.push('/')
+    localStorage.setItem('role', data.role)
+    router.push(data.role === 'admin' ? '/admin' : '/write')
   } else {
     registerError.value = data.error || '注册失败'
   }
