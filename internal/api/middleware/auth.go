@@ -27,7 +27,7 @@ func Auth(cfg *config.Config) gin.HandlerFunc {
 		}
 
 		token, err := jwt.Parse(parts[1], func(t *jwt.Token) (interface{}, error) {
-			return []byte(cfg.JWTSecret), nil
+			return []byte(cfg.JWT.Secret), nil
 		})
 		if err != nil || !token.Valid {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "登录已过期，请重新登录"})

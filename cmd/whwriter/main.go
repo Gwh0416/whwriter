@@ -18,7 +18,7 @@ import (
 func main() {
 	cfg := config.Load()
 
-	db, err := store.NewDB(cfg.MySQLDSN)
+	db, err := store.NewDB(cfg.MySQLDSN())
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
@@ -40,7 +40,7 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("whwriter server starting on %s (mode: %s)", cfg.Addr(), cfg.Mode)
+		log.Printf("whwriter server starting on %s (mode: %s)", cfg.Addr(), cfg.App.Mode)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("server listen error: %v", err)
 		}

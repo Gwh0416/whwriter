@@ -130,7 +130,7 @@ func (s *AuthService) generateToken(user *models.User) (string, error) {
 		"iat":      time.Now().Unix(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(s.cfg.JWTSecret))
+	return token.SignedString([]byte(s.cfg.JWT.Secret))
 }
 
 func validatePassword(password string) bool {
