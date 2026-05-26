@@ -23,6 +23,10 @@ func SetupRouter(cfg *config.Config, dbStore *store.UserStore, authSvc *service.
 
 	r.GET("/health", handler.Health)
 
+	r.StaticFile("/", "./web/index.html")
+	r.StaticFile("/favicon.ico", "./web/favicon.ico")
+	r.Static("/static", "./web/static")
+
 	authHandler := handler.NewAuthHandler(authSvc)
 
 	api := r.Group("/api/v1")

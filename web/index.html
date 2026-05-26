@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>文豪写作</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #e0e0e0;
+}
+.container {
+  width: 420px;
+  padding: 40px;
+}
+.logo {
+  text-align: center;
+  margin-bottom: 36px;
+}
+.logo h1 {
+  font-size: 36px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #f5af19, #f12711);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: 4px;
+}
+.logo p {
+  color: #888;
+  margin-top: 8px;
+  font-size: 14px;
+  letter-spacing: 2px;
+}
+.tabs {
+  display: flex;
+  margin-bottom: 28px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+.tab {
+  flex: 1;
+  text-align: center;
+  padding: 12px 0;
+  cursor: pointer;
+  color: #888;
+  font-size: 16px;
+  border-bottom: 2px solid transparent;
+  transition: all 0.3s;
+}
+.tab.active {
+  color: #f5af19;
+  border-bottom-color: #f5af19;
+}
+.form { display: none; }
+.form.active { display: block; }
+.form-group {
+  margin-bottom: 20px;
+}
+.form-group label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 14px;
+  color: #aaa;
+}
+.form-group input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.06);
+  color: #e0e0e0;
+  font-size: 15px;
+  outline: none;
+  transition: border-color 0.3s;
+}
+.form-group input:focus {
+  border-color: #f5af19;
+}
+.code-row {
+  display: flex;
+  gap: 12px;
+}
+.code-row input { flex: 1; }
+.code-row button {
+  white-space: nowrap;
+  padding: 12px 16px;
+  border: 1px solid #f5af19;
+  border-radius: 8px;
+  background: transparent;
+  color: #f5af19;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.3s;
+}
+.code-row button:hover { background: rgba(245,175,25,0.1); }
+.code-row button:disabled { opacity: 0.5; cursor: not-allowed; }
+.submit-btn {
+  width: 100%;
+  padding: 14px;
+  border: none;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #f5af19, #f12711);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  letter-spacing: 2px;
+  transition: opacity 0.3s;
+}
+.submit-btn:hover { opacity: 0.9; }
+.submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.error-msg {
+  color: #f12711;
+  font-size: 13px;
+  margin-top: 4px;
+  display: none;
+}
+.error-msg.show { display: block; }
+.success-msg {
+  color: #4caf50;
+  font-size: 13px;
+  margin-top: 4px;
+  display: none;
+}
+.success-msg.show { display: block; }
+.password-hint {
+  font-size: 12px;
+  color: #666;
+  margin-top: 4px;
+}
+.home-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+.home-header h2 { font-size: 20px; }
+.logout-btn {
+  padding: 8px 20px;
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 6px;
+  background: transparent;
+  color: #aaa;
+  cursor: pointer;
+  font-size: 14px;
+}
+.logout-btn:hover { color: #f12711; border-color: #f12711; }
+.welcome-card {
+  background: rgba(255,255,255,0.06);
+  border-radius: 12px;
+  padding: 32px;
+  text-align: center;
+}
+.welcome-card .avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #f5af19, #f12711);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  margin: 0 auto 16px;
+}
+.welcome-card h3 { font-size: 22px; margin-bottom: 8px; }
+.welcome-card p { color: #888; font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="container" id="app"></div>
+
+<script>
+const API = '/api/v1';
+
+let token = localStorage.getItem('token');
+let user = null;
+
+function $(sel) { return document.querySelector(sel); }
+
+function api(path, method, body) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  return fetch(API + path, { method, headers, body: body ? JSON.stringify(body) : undefined })
+    .then(r => r.json().then(data => ({ status: r.status, data })));
+}
+
+function renderLogin() {
+  document.getElementById('app').innerHTML = `
+    <div class="logo">
+      <h1>文豪写作</h1>
+      <p>AI 驱动的智能写作助手</p>
+    </div>
+    <div class="tabs">
+      <div class="tab active" data-tab="login">登录</div>
+      <div class="tab" data-tab="register">注册</div>
+    </div>
+    <form class="form active" id="login-form">
+      <div class="form-group">
+        <label>邮箱</label>
+        <input type="email" id="login-email" placeholder="请输入邮箱" required>
+      </div>
+      <div class="form-group">
+        <label>密码</label>
+        <input type="password" id="login-password" placeholder="请输入密码" required>
+      </div>
+      <div class="error-msg" id="login-error"></div>
+      <button type="submit" class="submit-btn" style="margin-top:8px">登 录</button>
+    </form>
+    <form class="form" id="register-form">
+      <div class="form-group">
+        <label>邮箱</label>
+        <div class="code-row">
+          <input type="email" id="reg-email" placeholder="请输入邮箱" required>
+          <button type="button" id="send-code-btn">发送验证码</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>验证码</label>
+        <input type="text" id="reg-code" placeholder="请输入6位验证码" maxlength="6" required>
+      </div>
+      <div class="form-group">
+        <label>用户名</label>
+        <input type="text" id="reg-username" placeholder="2-64个字符" required>
+      </div>
+      <div class="form-group">
+        <label>密码</label>
+        <input type="password" id="reg-password" placeholder="至少8位，包含大小写字母和数字" required>
+        <div class="password-hint">至少8位，需包含大写字母、小写字母和数字</div>
+      </div>
+      <div class="error-msg" id="reg-error"></div>
+      <div class="success-msg" id="reg-success"></div>
+      <button type="submit" class="submit-btn">注 册</button>
+    </form>
+  `;
+
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', function() {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      this.classList.add('active');
+      const target = this.dataset.tab;
+      document.querySelectorAll('.form').forEach(f => f.classList.remove('active'));
+      document.getElementById(target + '-form').classList.add('active');
+      document.getElementById('login-error').classList.remove('show');
+      document.getElementById('reg-error').classList.remove('show');
+      document.getElementById('reg-success').classList.remove('show');
+    });
+  });
+
+  let codeTimer = null;
+  let countdown = 0;
+
+  document.getElementById('send-code-btn').addEventListener('click', async function() {
+    const email = document.getElementById('reg-email').value;
+    if (!email) {
+      showRegError('请输入邮箱');
+      return;
+    }
+    this.disabled = true;
+    const { status, data } = await api('/auth/send-code', 'POST', { email });
+    if (status === 200) {
+      showRegSuccess('验证码已发送');
+      countdown = 60;
+      this.textContent = countdown + 's';
+      codeTimer = setInterval(() => {
+        countdown--;
+        if (countdown <= 0) {
+          clearInterval(codeTimer);
+          this.textContent = '发送验证码';
+          this.disabled = false;
+        } else {
+          this.textContent = countdown + 's';
+        }
+      }, 1000);
+    } else {
+      showRegError(data.error || '发送失败');
+      this.disabled = false;
+    }
+  });
+
+  document.getElementById('login-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const email = document.getElementById('login-email').value;
+    const password = document.getElementById('login-password').value;
+    const { status, data } = await api('/auth/login', 'POST', { email, password });
+    if (status === 200) {
+      token = data.token;
+      localStorage.setItem('token', token);
+      user = data;
+      renderHome();
+    } else {
+      showLoginError(data.error || '登录失败');
+    }
+  });
+
+  document.getElementById('register-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const email = document.getElementById('reg-email').value;
+    const code = document.getElementById('reg-code').value;
+    const username = document.getElementById('reg-username').value;
+    const password = document.getElementById('reg-password').value;
+    const { status, data } = await api('/auth/register', 'POST', { email, code, username, password });
+    if (status === 201) {
+      token = data.token;
+      localStorage.setItem('token', token);
+      user = data;
+      renderHome();
+    } else {
+      showRegError(data.error || '注册失败');
+    }
+  });
+}
+
+function showLoginError(msg) {
+  const el = document.getElementById('login-error');
+  el.textContent = msg;
+  el.classList.add('show');
+}
+
+function showRegError(msg) {
+  const el = document.getElementById('reg-error');
+  const suc = document.getElementById('reg-success');
+  el.textContent = msg;
+  el.classList.add('show');
+  suc.classList.remove('show');
+}
+
+function showRegSuccess(msg) {
+  const el = document.getElementById('reg-success');
+  const err = document.getElementById('reg-error');
+  el.textContent = msg;
+  el.classList.add('show');
+  err.classList.remove('show');
+}
+
+function renderHome() {
+  document.getElementById('app').innerHTML = `
+    <div class="logo">
+      <h1>文豪写作</h1>
+      <p>AI 驱动的智能写作助手</p>
+    </div>
+    <div class="home-header">
+      <h2>欢迎回来</h2>
+      <button class="logout-btn" id="logout-btn">退出登录</button>
+    </div>
+    <div class="welcome-card">
+      <div class="avatar">${(user?.username || '?')[0]}</div>
+      <h3>${user?.username || ''}</h3>
+      <p>${user?.email || ''}</p>
+    </div>
+  `;
+
+  document.getElementById('logout-btn').addEventListener('click', function() {
+    token = null;
+    user = null;
+    localStorage.removeItem('token');
+    renderLogin();
+  });
+}
+
+if (token) {
+  api('/me', 'GET').then(({ status, data }) => {
+    if (status === 200) {
+      user = data;
+      renderHome();
+    } else {
+      token = null;
+      localStorage.removeItem('token');
+      renderLogin();
+    }
+  });
+} else {
+  renderLogin();
+}
+</script>
+</body>
+</html>
