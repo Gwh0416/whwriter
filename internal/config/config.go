@@ -18,6 +18,7 @@ type Config struct {
 	App   AppConfig   `yaml:"app"`
 	MySQL MySQLConfig `yaml:"mysql"`
 	JWT   JWTConfig   `yaml:"jwt"`
+	Admin AdminConfig `yaml:"admin"`
 	SMTP  SMTPConfig  `yaml:"smtp"`
 }
 
@@ -38,6 +39,12 @@ type MySQLConfig struct {
 
 type JWTConfig struct {
 	Secret string `yaml:"secret"`
+}
+
+type AdminConfig struct {
+	Email    string `yaml:"email"`
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
 }
 
 type SMTPConfig struct {
@@ -65,6 +72,11 @@ func Load(path string) *Config {
 		},
 		JWT: JWTConfig{
 			Secret: "whwriter-jwt-secret-change-in-production",
+		},
+		Admin: AdminConfig{
+			Email:    "admin@whwriter.com",
+			Username: "admin",
+			Password: "Admin123456",
 		},
 		SMTP: SMTPConfig{
 			Port: 587,

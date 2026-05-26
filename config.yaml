@@ -17,6 +17,11 @@ mysql:
 jwt:
   secret: "whwriter-jwt-secret-change-in-production"
 
+admin:
+  email: "admin@whwriter.com"
+  username: "admin"
+  password: "Admin123456"
+
 smtp:
   host: "smtp.qq.com"            # 例如 smtp.qq.com
   port: 587
