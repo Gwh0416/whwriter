@@ -2,11 +2,19 @@ package models
 
 import "time"
 
+type Role string
+
+const (
+	RoleAdmin Role = "admin"
+	RoleUser  Role = "user"
+)
+
 type User struct {
 	ID           uint      `json:"id" gorm:"primaryKey"`
 	Email        string    `json:"email" gorm:"uniqueIndex;size:255;not null"`
 	Username     string    `json:"username" gorm:"uniqueIndex;size:64;not null"`
 	PasswordHash string    `json:"-" gorm:"size:255;not null"`
+	Role         Role      `json:"role" gorm:"size:16;not null;default:user"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
@@ -41,4 +49,5 @@ type AuthResponse struct {
 	UserID   uint   `json:"user_id"`
 	Username string `json:"username"`
 	Email    string `json:"email"`
+	Role     Role   `json:"role"`
 }
