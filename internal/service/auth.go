@@ -19,7 +19,7 @@ var (
 	ErrInvalidCode           = errors.New("验证码无效或已过期")
 	ErrInvalidCredentials    = errors.New("邮箱或密码错误")
 	ErrWeakPassword          = errors.New("密码强度不足：需要至少8位，包含大小写字母和数字")
-	ErrInvalidUsername       = errors.New("用户名需为2-32个字符")
+	ErrInvalidUsername       = errors.New("用户名需为2-16个字符")
 )
 
 type AuthService struct {
@@ -161,5 +161,5 @@ func validatePassword(password string) bool {
 
 func validateUsername(username string) bool {
 	count := len([]rune(username))
-	return count >= 2 && count <= 32
+	return count >= 2 && count <= 16
 }
