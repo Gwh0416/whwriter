@@ -48,7 +48,7 @@ type SMTPConfig struct {
 	From     string `yaml:"from"`
 }
 
-func Load() *Config {
+func Load(path string) *Config {
 	cfg := &Config{
 		App: AppConfig{
 			Mode: ModeDev,
@@ -71,66 +71,17 @@ func Load() *Config {
 		},
 	}
 
-	path := "config.yaml"
-	if v := os.Getenv("CONFIG_PATH"); v != "" {
-		path = v
-	}
-
 	data, err := os.ReadFile(path)
-	if err == nil {
-		if err := yaml.Unmarshal(data, cfg); err != nil {
-			fmt.Fprintf(os.Stderr, "warn: failed to parse config.yaml: %v\n", err)
-		}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warn: failed to read %s: %v, using defaults\n", path, err)
+		return cfg
 	}
 
-	applyEnvOverrides(cfg)
+	if err := yaml.Unmarshal(data, cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "warn: failed to parse %s: %v\n", path, err)
+	}
 
 	return cfg
-}
-
-func applyEnvOverrides(cfg *Config) {
-	if v := os.Getenv("APP_MODE"); v != "" {
-		cfg.App.Mode = Mode(v)
-	}
-	if v := os.Getenv("APP_HOST"); v != "" {
-		cfg.App.Host = v
-	}
-	if v := os.Getenv("APP_PORT"); v != "" {
-		fmt.Sscanf(v, "%d", &cfg.App.Port)
-	}
-	if v := os.Getenv("MYSQL_HOST"); v != "" {
-		cfg.MySQL.Host = v
-	}
-	if v := os.Getenv("MYSQL_PORT"); v != "" {
-		fmt.Sscanf(v, "%d", &cfg.MySQL.Port)
-	}
-	if v := os.Getenv("MYSQL_USER"); v != "" {
-		cfg.MySQL.User = v
-	}
-	if v := os.Getenv("MYSQL_PASSWORD"); v != "" {
-		cfg.MySQL.Password = v
-	}
-	if v := os.Getenv("MYSQL_DATABASE"); v != "" {
-		cfg.MySQL.Database = v
-	}
-	if v := os.Getenv("JWT_SECRET"); v != "" {
-		cfg.JWT.Secret = v
-	}
-	if v := os.Getenv("SMTP_HOST"); v != "" {
-		cfg.SMTP.Host = v
-	}
-	if v := os.Getenv("SMTP_PORT"); v != "" {
-		fmt.Sscanf(v, "%d", &cfg.SMTP.Port)
-	}
-	if v := os.Getenv("SMTP_USER"); v != "" {
-		cfg.SMTP.User = v
-	}
-	if v := os.Getenv("SMTP_PASSWORD"); v != "" {
-		cfg.SMTP.Password = v
-	}
-	if v := os.Getenv("SMTP_FROM"); v != "" {
-		cfg.SMTP.From = v
-	}
 }
 
 func (c *Config) Addr() string {

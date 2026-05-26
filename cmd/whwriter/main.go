@@ -16,7 +16,7 @@ import (
 )
 
 func main() {
-	cfg := config.Load()
+	cfg := config.Load("config.yaml")
 
 	db, err := store.NewDB(cfg.MySQLDSN())
 	if err != nil {

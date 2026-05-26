@@ -47,7 +47,7 @@ func (s *EmailService) SendVerificationCode(to, code string) error {
 	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n%s",
 		s.cfg.From, to, subject, body)
 
-	addr := fmt.Sprintf("%s:%s", s.cfg.Host, s.cfg.Port)
+	addr := fmt.Sprintf("%s:%d", s.cfg.Host, s.cfg.Port)
 	auth := smtp.PlainAuth("", s.cfg.User, s.cfg.Password, s.cfg.Host)
 
 	if err := smtp.SendMail(addr, auth, s.cfg.From, []string{to}, []byte(msg)); err != nil {
