@@ -42,7 +42,7 @@
         </div>
         <div class="form-group">
           <label>用户名</label>
-          <input v-model="registerForm.username" type="text" placeholder="2-64个字符" required />
+          <input v-model="registerForm.username" type="text" placeholder="2-32个字符，支持中英文" required />
         </div>
         <div class="form-group">
           <label>密码</label>
@@ -128,6 +128,14 @@ async function handleRegister() {
   registerLoading.value = true
   registerError.value = ''
   registerSuccess.value = ''
+
+  const nameLen = [...registerForm.username].length
+  if (nameLen < 2 || nameLen > 32) {
+    registerError.value = '用户名需为2-32个字符'
+    registerLoading.value = false
+    return
+  }
+
   const { status, data } = await api('/auth/register', 'POST', registerForm)
   registerLoading.value = false
   if (status === 201) {

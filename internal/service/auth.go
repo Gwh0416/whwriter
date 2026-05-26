@@ -19,6 +19,7 @@ var (
 	ErrInvalidCode           = errors.New("验证码无效或已过期")
 	ErrInvalidCredentials    = errors.New("邮箱或密码错误")
 	ErrWeakPassword          = errors.New("密码强度不足：需要至少8位，包含大小写字母和数字")
+	ErrInvalidUsername       = errors.New("用户名需为2-32个字符")
 )
 
 type AuthService struct {
@@ -42,6 +43,10 @@ func (s *AuthService) SendCode(req *models.SendCodeRequest) error {
 func (s *AuthService) Register(req *models.RegisterRequest) (*models.AuthResponse, error) {
 	if !validatePassword(req.Password) {
 		return nil, ErrWeakPassword
+	}
+
+	if !validateUsername(req.Username) {
+		return nil, ErrInvalidUsername
 	}
 
 	ok, err := s.userStore.VerifyCode(req.Email, req.Code)
@@ -152,4 +157,9 @@ func validatePassword(password string) bool {
 		}
 	}
 	return hasUpper && hasLower && hasDigit
+}
+
+func validateUsername(username string) bool {
+	count := len([]rune(username))
+	return count >= 2 && count <= 32
 }
