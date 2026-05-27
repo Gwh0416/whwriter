@@ -1,10 +1,10 @@
-package store
+package mysql
 
 import (
 	"fmt"
 	"log"
 
-	"whwriter/backend/pkg/models"
+	"whwriter/backend/internal/model"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -31,22 +31,22 @@ func NewDB(dsn string) (*gorm.DB, error) {
 	}
 
 	if err := db.AutoMigrate(
-		&models.User{},
-		&models.EmailVerification{},
-		&models.Genre{},
-		&models.Platform{},
-		&models.Book{},
-		&models.Chapter{},
-		&models.Character{},
-		&models.Hook{},
-		&models.Fact{},
-		&models.ChapterSummary{},
-		&models.BookFoundation{},
-		&models.ChapterSnapshot{},
-		&models.RuntimeArtifact{},
-		&models.Prompt{},
-		&models.LLMConfig{},
-		&models.AgentModelRoute{},
+		&model.User{},
+		&model.EmailVerification{},
+		&model.Genre{},
+		&model.Platform{},
+		&model.Book{},
+		&model.Chapter{},
+		&model.Character{},
+		&model.Hook{},
+		&model.Fact{},
+		&model.ChapterSummary{},
+		&model.BookFoundation{},
+		&model.ChapterSnapshot{},
+		&model.RuntimeArtifact{},
+		&model.Prompt{},
+		&model.LLMConfig{},
+		&model.AgentModelRoute{},
 	); err != nil {
 		return nil, fmt.Errorf("auto migrate: %w", err)
 	}

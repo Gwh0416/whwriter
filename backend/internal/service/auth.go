@@ -6,8 +6,8 @@ import (
 	"unicode"
 
 	"whwriter/backend/internal/config"
-	"whwriter/backend/internal/store"
-	"whwriter/backend/pkg/models"
+	"whwriter/backend/internal/model"
+	"whwriter/backend/internal/repository"
 
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
@@ -23,24 +23,24 @@ var (
 )
 
 type AuthService struct {
-	userStore *store.UserStore
-	emailSvc  *EmailService
-	cfg       *config.Config
+	userRepo repository.UserRepository
+	emailSvc *EmailService
+	cfg      *config.Config
 }
 
-func NewAuthService(userStore *store.UserStore, emailSvc *EmailService, cfg *config.Config) *AuthService {
-	return &AuthService{userStore: userStore, emailSvc: emailSvc, cfg: cfg}
+func NewAuthService(userRepo repository.UserRepository, emailSvc *EmailService, cfg *config.Config) *AuthService {
+	return &AuthService{userRepo: userRepo, emailSvc: emailSvc, cfg: cfg}
 }
 
-func (s *AuthService) SendCode(req *models.SendCodeRequest) error {
+func (s *AuthService) SendCode(req *model.SendCodeRequest) error {
 	code := s.emailSvc.GenerateCode()
-	if err := s.userStore.SaveVerificationCode(req.Email, code); err != nil {
+	if err := s.userRepo.SaveVerificationCode(req.Email, code); err != nil {
 		return err
 	}
 	return s.emailSvc.SendVerificationCode(req.Email, code)
 }
 
-func (s *AuthService) Register(req *models.RegisterRequest) (*models.AuthResponse, error) {
+func (s *AuthService) Register(req *model.RegisterRequest) (*model.AuthResponse, error) {
 	if !validatePassword(req.Password) {
 		return nil, ErrWeakPassword
 	}
@@ -49,7 +49,7 @@ func (s *AuthService) Register(req *models.RegisterRequest) (*models.AuthRespons
 		return nil, ErrInvalidUsername
 	}
 
-	ok, err := s.userStore.VerifyCode(req.Email, req.Code)
+	ok, err := s.userRepo.VerifyCode(req.Email, req.Code)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +57,7 @@ func (s *AuthService) Register(req *models.RegisterRequest) (*models.AuthRespons
 		return nil, ErrInvalidCode
 	}
 
-	existing, err := s.userStore.FindByEmail(req.Email)
+	existing, err := s.userRepo.FindByEmail(req.Email)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +65,7 @@ func (s *AuthService) Register(req *models.RegisterRequest) (*models.AuthRespons
 		return nil, ErrEmailAlreadyExists
 	}
 
-	existing, err = s.userStore.FindByUsername(req.Username)
+	existing, err = s.userRepo.FindByUsername(req.Username)
 	if err != nil {
 		return nil, err
 	}
@@ -78,12 +78,12 @@ func (s *AuthService) Register(req *models.RegisterRequest) (*models.AuthRespons
 		return nil, err
 	}
 
-	user := &models.User{
+	user := &model.User{
 		Email:        req.Email,
 		Username:     req.Username,
 		PasswordHash: string(hash),
 	}
-	if err := s.userStore.Create(user); err != nil {
+	if err := s.userRepo.Create(user); err != nil {
 		return nil, err
 	}
 
@@ -92,7 +92,7 @@ func (s *AuthService) Register(req *models.RegisterRequest) (*models.AuthRespons
 		return nil, err
 	}
 
-	return &models.AuthResponse{
+	return &model.AuthResponse{
 		Token:    token,
 		UserID:   user.ID,
 		Username: user.Username,
@@ -101,8 +101,8 @@ func (s *AuthService) Register(req *models.RegisterRequest) (*models.AuthRespons
 	}, nil
 }
 
-func (s *AuthService) Login(req *models.LoginRequest) (*models.AuthResponse, error) {
-	user, err := s.userStore.FindByEmail(req.Email)
+func (s *AuthService) Login(req *model.LoginRequest) (*model.AuthResponse, error) {
+	user, err := s.userRepo.FindByEmail(req.Email)
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +119,7 @@ func (s *AuthService) Login(req *models.LoginRequest) (*models.AuthResponse, err
 		return nil, err
 	}
 
-	return &models.AuthResponse{
+	return &model.AuthResponse{
 		Token:    token,
 		UserID:   user.ID,
 		Username: user.Username,
@@ -128,7 +128,7 @@ func (s *AuthService) Login(req *models.LoginRequest) (*models.AuthResponse, err
 	}, nil
 }
 
-func (s *AuthService) generateToken(user *models.User) (string, error) {
+func (s *AuthService) generateToken(user *model.User) (string, error) {
 	claims := jwt.MapClaims{
 		"user_id":  user.ID,
 		"email":    user.Email,
@@ -166,18 +166,23 @@ func validateUsername(username string) bool {
 
 func (s *AuthService) SendChangePasswordCode(email string) error {
 	code := s.emailSvc.GenerateCode()
-	if err := s.userStore.SaveVerificationCode(email, code); err != nil {
+	if err := s.userRepo.SaveVerificationCode(email, code); err != nil {
 		return err
 	}
 	return s.emailSvc.SendVerificationCode(email, code)
 }
 
-func (s *AuthService) ChangePassword(userID uint, email string, req *models.ChangePasswordRequest) error {
+func (s *AuthService) ChangePassword(userID uint, req *model.ChangePasswordRequest) error {
 	if !validatePassword(req.NewPassword) {
 		return ErrWeakPassword
 	}
 
-	ok, err := s.userStore.VerifyCode(email, req.Code)
+	user, err := s.userRepo.FindByID(userID)
+	if err != nil || user == nil {
+		return err
+	}
+
+	ok, err := s.userRepo.VerifyCode(user.Email, req.Code)
 	if err != nil {
 		return err
 	}
@@ -190,5 +195,5 @@ func (s *AuthService) ChangePassword(userID uint, email string, req *models.Chan
 		return err
 	}
 
-	return s.userStore.UpdatePassword(userID, string(hash))
+	return s.userRepo.UpdatePassword(userID, string(hash))
 }

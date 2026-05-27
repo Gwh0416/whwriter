@@ -4,21 +4,21 @@ import (
 	"net/http"
 	"strconv"
 
-	"whwriter/backend/internal/store"
+	"whwriter/backend/internal/repository"
 
 	"github.com/gin-gonic/gin"
 )
 
 type AdminHandler struct {
-	userStore *store.UserStore
+	userRepo repository.UserRepository
 }
 
-func NewAdminHandler(userStore *store.UserStore) *AdminHandler {
-	return &AdminHandler{userStore: userStore}
+func NewAdminHandler(userRepo repository.UserRepository) *AdminHandler {
+	return &AdminHandler{userRepo: userRepo}
 }
 
 func (h *AdminHandler) GetStats(c *gin.Context) {
-	stats, err := h.userStore.GetStats()
+	stats, err := h.userRepo.GetStats()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取统计数据失败"})
 		return
@@ -37,7 +37,7 @@ func (h *AdminHandler) ListUsers(c *gin.Context) {
 		pageSize = 20
 	}
 
-	users, total, err := h.userStore.ListUsers(page, pageSize)
+	users, total, err := h.userRepo.ListUsers(page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取用户列表失败"})
 		return

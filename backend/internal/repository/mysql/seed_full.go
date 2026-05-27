@@ -1,9 +1,9 @@
-package store
+package mysql
 
 import (
 	"log"
 
-	"whwriter/backend/pkg/models"
+	"whwriter/backend/internal/model"
 
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
@@ -11,7 +11,7 @@ import (
 
 func SeedAdmin(db *gorm.DB, email, username, password string) {
 	var count int64
-	db.Model(&models.User{}).Where("role = ?", models.RoleAdmin).Count(&count)
+	db.Model(&model.User{}).Where("role = ?", model.RoleAdmin).Count(&count)
 	if count > 0 {
 		return
 	}
@@ -22,11 +22,11 @@ func SeedAdmin(db *gorm.DB, email, username, password string) {
 		return
 	}
 
-	admin := &models.User{
+	admin := &model.User{
 		Email:        email,
 		Username:     username,
 		PasswordHash: string(hash),
-		Role:         models.RoleAdmin,
+		Role:         model.RoleAdmin,
 	}
 
 	if err := db.Create(admin).Error; err != nil {
@@ -39,12 +39,12 @@ func SeedAdmin(db *gorm.DB, email, username, password string) {
 
 func SeedGenres(db *gorm.DB) {
 	var count int64
-	db.Model(&models.Genre{}).Where("user_id = 0").Count(&count)
+	db.Model(&model.Genre{}).Where("user_id = 0").Count(&count)
 	if count > 0 {
 		return
 	}
 
-	genres := []models.Genre{
+	genres := []model.Genre{
 		{UserID: 0, Name: "玄幻", SortOrder: 1, ProfileMarkdown: genreXuanhuan},
 		{UserID: 0, Name: "仙侠", SortOrder: 2, ProfileMarkdown: genreXianxia},
 		{UserID: 0, Name: "都市", SortOrder: 3, ProfileMarkdown: genreUrban},
@@ -73,12 +73,12 @@ func SeedGenres(db *gorm.DB) {
 
 func SeedPlatforms(db *gorm.DB) {
 	var count int64
-	db.Model(&models.Platform{}).Count(&count)
+	db.Model(&model.Platform{}).Count(&count)
 	if count > 0 {
 		return
 	}
 
-	platforms := []models.Platform{
+	platforms := []model.Platform{
 		{Name: "番茄小说", SortOrder: 1, StyleGuide: "免费阅读平台，偏好快节奏爽文。开头必须有强钩子，每章结尾留悬念。节奏紧凑，三章内必有明确反馈（打脸/升级/收益兑现）。章节字数 2000-3000 为宜。"},
 		{Name: "起点中文网", SortOrder: 2, StyleGuide: "付费阅读平台，偏好精品长篇。世界观设定需详实，修炼体系需严谨。节奏可稍慢但需有持续吸引力。章节字数 3000-5000 为宜。注重逻辑自洽和设定深度。"},
 		{Name: "纵横中文网", SortOrder: 3, StyleGuide: "男频为主，偏好传统玄幻和都市题材。注重战斗场面和升级体系。章节字数 3000-4000 为宜。"},

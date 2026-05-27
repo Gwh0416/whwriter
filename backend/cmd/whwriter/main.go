@@ -9,39 +9,24 @@ import (
 	"syscall"
 	"time"
 
-	"whwriter/backend/internal/api"
 	"whwriter/backend/internal/config"
-	"whwriter/backend/internal/service"
-	"whwriter/backend/internal/store"
+	"whwriter/backend/internal/container"
 )
 
 func main() {
 	cfg := config.Load("config.yaml")
 
-	db, err := store.NewDB(cfg.MySQLDSN())
+	c, err := container.New(cfg)
 	if err != nil {
-		log.Fatalf("failed to connect to database: %v", err)
+		log.Fatalf("failed to initialize container: %v", err)
 	}
-	sqlDB, _ := db.DB()
+
+	sqlDB, _ := c.DB.DB()
 	defer sqlDB.Close()
-
-	store.SeedAdmin(db, cfg.Admin.Email, cfg.Admin.Username, cfg.Admin.Password)
-	store.SeedGenres(db)
-	store.SeedPlatforms(db)
-
-	userStore := store.NewUserStore(db)
-	genreStore := store.NewGenreStore(db)
-	platformStore := store.NewPlatformStore(db)
-	llmStore := store.NewLLMConfigStore(db)
-	bookStore := store.NewBookStore(db)
-	emailSvc := service.NewEmailService(cfg.SMTP)
-	authSvc := service.NewAuthService(userStore, emailSvc, cfg)
-
-	router := api.SetupRouter(cfg, userStore, authSvc, genreStore, platformStore, llmStore, bookStore)
 
 	srv := &http.Server{
 		Addr:         cfg.Addr(),
-		Handler:      router,
+		Handler:      c.Engine,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 60 * time.Second,
 		IdleTimeout:  120 * time.Second,

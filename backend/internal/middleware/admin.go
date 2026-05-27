@@ -3,7 +3,7 @@ package middleware
 import (
 	"net/http"
 
-	"whwriter/backend/pkg/models"
+	"whwriter/backend/internal/model"
 
 	"github.com/gin-gonic/gin"
 )
@@ -11,7 +11,7 @@ import (
 func AdminOnly() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		role := c.GetString("role")
-		if role != string(models.RoleAdmin) {
+		if role != string(model.RoleAdmin) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "仅管理员可访问"})
 			c.Abort()
 			return

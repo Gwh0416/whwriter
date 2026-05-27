@@ -3,28 +3,28 @@ package handler
 import (
 	"net/http"
 
-	"whwriter/backend/internal/store"
+	"whwriter/backend/internal/repository"
 
 	"github.com/gin-gonic/gin"
 )
 
 type ResourceHandler struct {
-	genreStore    *store.GenreStore
-	platformStore *store.PlatformStore
-	llmStore      *store.LLMConfigStore
+	genreRepo    repository.GenreRepository
+	platformRepo repository.PlatformRepository
+	llmRepo      repository.LLMConfigRepository
 }
 
-func NewResourceHandler(genreStore *store.GenreStore, platformStore *store.PlatformStore, llmStore *store.LLMConfigStore) *ResourceHandler {
+func NewResourceHandler(genreRepo repository.GenreRepository, platformRepo repository.PlatformRepository, llmRepo repository.LLMConfigRepository) *ResourceHandler {
 	return &ResourceHandler{
-		genreStore:    genreStore,
-		platformStore: platformStore,
-		llmStore:      llmStore,
+		genreRepo:    genreRepo,
+		platformRepo: platformRepo,
+		llmRepo:      llmRepo,
 	}
 }
 
 func (h *ResourceHandler) ListGenres(c *gin.Context) {
 	userID := c.GetUint("user_id")
-	genres, err := h.genreStore.ListByUser(userID)
+	genres, err := h.genreRepo.ListByUser(userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取题材列表失败"})
 		return
@@ -33,7 +33,7 @@ func (h *ResourceHandler) ListGenres(c *gin.Context) {
 }
 
 func (h *ResourceHandler) ListPlatforms(c *gin.Context) {
-	platforms, err := h.platformStore.List()
+	platforms, err := h.platformRepo.List()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取平台列表失败"})
 		return
@@ -42,7 +42,7 @@ func (h *ResourceHandler) ListPlatforms(c *gin.Context) {
 }
 
 func (h *ResourceHandler) ListLLMConfigs(c *gin.Context) {
-	configs, err := h.llmStore.List()
+	configs, err := h.llmRepo.List()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取模型配置失败"})
 		return

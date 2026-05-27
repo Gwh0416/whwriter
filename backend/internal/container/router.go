@@ -1,16 +1,15 @@
-package api
+package container
 
 import (
-	"whwriter/backend/internal/api/handler"
-	"whwriter/backend/internal/api/middleware"
-	"whwriter/backend/internal/config"
-	"whwriter/backend/internal/service"
-	"whwriter/backend/internal/store"
+	"whwriter/backend/internal/handler"
+	"whwriter/backend/internal/middleware"
 
 	"github.com/gin-gonic/gin"
 )
 
-func SetupRouter(cfg *config.Config, dbStore *store.UserStore, authSvc *service.AuthService, genreStore *store.GenreStore, platformStore *store.PlatformStore, llmStore *store.LLMConfigStore, bookStore *store.BookStore) *gin.Engine {
+func SetupRouter(c *Container) *gin.Engine {
+	cfg := c.Config
+
 	if !cfg.IsDev() {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -36,10 +35,10 @@ func SetupRouter(cfg *config.Config, dbStore *store.UserStore, authSvc *service.
 		}
 	})
 
-	authHandler := handler.NewAuthHandler(authSvc)
-	resourceHandler := handler.NewResourceHandler(genreStore, platformStore, llmStore)
-	bookHandler := handler.NewBookHandler(bookStore)
-	adminHandler := handler.NewAdminHandler(dbStore)
+	authHandler := handler.NewAuthHandler(c.AuthSvc)
+	resourceHandler := handler.NewResourceHandler(c.GenreRepo, c.PlatformRepo, c.LLMConfigRepo)
+	bookHandler := handler.NewBookHandler(c.BookRepo)
+	adminHandler := handler.NewAdminHandler(c.UserRepo)
 
 	api := r.Group("/api/v1")
 	{
