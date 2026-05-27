@@ -81,6 +81,12 @@ func (h *AuthHandler) Login(c *gin.Context) {
 }
 
 func (h *AuthHandler) SendChangePasswordCode(c *gin.Context) {
+	role := c.GetString("role")
+	if role == string(models.RoleAdmin) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "管理员不支持修改密码"})
+		return
+	}
+
 	email := c.GetString("email")
 	if email == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "未登录"})
@@ -96,6 +102,12 @@ func (h *AuthHandler) SendChangePasswordCode(c *gin.Context) {
 }
 
 func (h *AuthHandler) ChangePassword(c *gin.Context) {
+	role := c.GetString("role")
+	if role == string(models.RoleAdmin) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "管理员不支持修改密码"})
+		return
+	}
+
 	userID := c.GetUint("user_id")
 	email := c.GetString("email")
 	if email == "" {

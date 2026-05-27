@@ -50,6 +50,11 @@ router.beforeEach((to, from, next) => {
     return
   }
 
+  if (to.path === '/change-password' && role === 'admin') {
+    next('/admin')
+    return
+  }
+
   next()
 })
 

@@ -11,7 +11,6 @@
         <a href="#" class="nav-item">提示词管理</a>
         <a href="#" class="nav-item">模型配置</a>
         <a href="#" class="nav-item">系统设置</a>
-        <router-link to="/change-password" class="nav-item">修改密码</router-link>
       </nav>
       <div class="sidebar-footer">
         <div class="user-info">
