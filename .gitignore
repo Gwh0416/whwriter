@@ -4,5 +4,6 @@
 .vscode/
 *.log
 .DS_Store
-web/dist/
-web/node_modules/
+frontend/dist/
+frontend/node_modules/
+mysql_data/
