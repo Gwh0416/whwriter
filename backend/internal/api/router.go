@@ -39,6 +39,7 @@ func SetupRouter(cfg *config.Config, dbStore *store.UserStore, authSvc *service.
 	authHandler := handler.NewAuthHandler(authSvc)
 	resourceHandler := handler.NewResourceHandler(genreStore, platformStore, llmStore)
 	bookHandler := handler.NewBookHandler(bookStore)
+	adminHandler := handler.NewAdminHandler(dbStore)
 
 	api := r.Group("/api/v1")
 	{
@@ -72,6 +73,13 @@ func SetupRouter(cfg *config.Config, dbStore *store.UserStore, authSvc *service.
 
 			protected.POST("/books", bookHandler.Create)
 			protected.GET("/books", bookHandler.List)
+
+			admin := protected.Group("/admin")
+			admin.Use(middleware.AdminOnly())
+			{
+				admin.GET("/stats", adminHandler.GetStats)
+				admin.GET("/users", adminHandler.ListUsers)
+			}
 		}
 	}
 

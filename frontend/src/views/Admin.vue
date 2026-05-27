@@ -6,8 +6,8 @@
         <span class="badge">管理后台</span>
       </div>
       <nav class="sidebar-nav">
-        <a href="#" class="nav-item active">仪表盘</a>
-        <a href="#" class="nav-item">用户管理</a>
+        <a href="#" class="nav-item" :class="{ active: tab === 'dashboard' }" @click.prevent="tab = 'dashboard'">仪表盘</a>
+        <a href="#" class="nav-item" :class="{ active: tab === 'users' }" @click.prevent="tab = 'users'">用户管理</a>
         <a href="#" class="nav-item">提示词管理</a>
         <a href="#" class="nav-item">模型配置</a>
         <a href="#" class="nav-item">系统设置</a>
@@ -25,52 +25,123 @@
     </aside>
     <main class="main-content">
       <header class="topbar">
-        <h1>仪表盘</h1>
+        <h1>{{ tab === 'dashboard' ? '仪表盘' : '用户管理' }}</h1>
       </header>
       <div class="content">
-        <div class="stats">
-          <div class="stat-card">
-            <div class="stat-value">0</div>
-            <div class="stat-label">注册用户</div>
+
+        <div v-if="tab === 'dashboard'">
+          <div class="stats">
+            <div class="stat-card">
+              <div class="stat-value">{{ stats.total_users }}</div>
+              <div class="stat-label">注册用户</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value">{{ stats.active_books }}</div>
+              <div class="stat-label">进行中的小说</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value">{{ stats.total_chapters }}</div>
+              <div class="stat-label">已完成章节</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value">-</div>
+              <div class="stat-label">今日调用</div>
+            </div>
           </div>
-          <div class="stat-card">
-            <div class="stat-value">0</div>
-            <div class="stat-label">进行中的小说</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value">0</div>
-            <div class="stat-label">已完成章节</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value">0</div>
-            <div class="stat-label">今日调用</div>
+          <div class="placeholder-card">
+            <p>欢迎使用文豪写作管理后台</p>
+            <p class="sub">更多管理功能即将上线</p>
           </div>
         </div>
-        <div class="placeholder-card">
-          <p>欢迎使用文豪写作管理后台</p>
-          <p class="sub">更多管理功能即将上线</p>
+
+        <div v-if="tab === 'users'" class="users-section">
+          <div class="users-header">
+            <div class="users-count">共 {{ userTotal }} 个用户</div>
+          </div>
+          <div class="table-wrap">
+            <table class="users-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>用户名</th>
+                  <th>邮箱</th>
+                  <th>角色</th>
+                  <th>注册时间</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="u in users" :key="u.id">
+                  <td>{{ u.id }}</td>
+                  <td>{{ u.username }}</td>
+                  <td>{{ u.email }}</td>
+                  <td>
+                    <span class="role-tag" :class="u.role">{{ u.role === 'admin' ? '管理员' : '用户' }}</span>
+                  </td>
+                  <td>{{ formatDate(u.created_at) }}</td>
+                </tr>
+                <tr v-if="users.length === 0">
+                  <td colspan="5" class="empty-row">暂无用户</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="pagination" v-if="userTotal > pageSize">
+            <button :disabled="page <= 1" @click="page--; loadUsers()">上一页</button>
+            <span>第 {{ page }} / {{ totalPages }} 页</span>
+            <button :disabled="page >= totalPages" @click="page++; loadUsers()">下一页</button>
+          </div>
         </div>
+
       </div>
     </main>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
 const user = ref(null)
+const tab = ref('dashboard')
+
+const stats = ref({ total_users: 0, active_books: 0, total_chapters: 0 })
+const users = ref([])
+const userTotal = ref(0)
+const page = ref(1)
+const pageSize = 20
+
+const totalPages = computed(() => Math.ceil(userTotal.value / pageSize) || 1)
+
+const token = localStorage.getItem('token')
+const headers = { 'Authorization': 'Bearer ' + token }
 
 onMounted(async () => {
-  const token = localStorage.getItem('token')
-  const res = await fetch('/api/v1/me', {
-    headers: { 'Authorization': 'Bearer ' + token },
-  })
-  if (res.status === 200) {
-    user.value = await res.json()
-  }
+  const [userRes, statsRes] = await Promise.all([
+    fetch('/api/v1/me', { headers }),
+    fetch('/api/v1/admin/stats', { headers }),
+  ])
+  if (userRes.ok) user.value = await userRes.json()
+  if (statsRes.ok) stats.value = await statsRes.json()
 })
+
+watch(tab, (val) => {
+  if (val === 'users') loadUsers()
+})
+
+async function loadUsers() {
+  const res = await fetch(`/api/v1/admin/users?page=${page.value}&page_size=${pageSize}`, { headers })
+  if (res.ok) {
+    const data = await res.json()
+    users.value = data.users
+    userTotal.value = data.total
+  }
+}
+
+function formatDate(d) {
+  if (!d) return '-'
+  return new Date(d).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
 
 function logout() {
   localStorage.removeItem('token')
@@ -124,6 +195,7 @@ function logout() {
   font-size: 14px;
   transition: all 0.2s;
   border-left: 3px solid transparent;
+  cursor: pointer;
 }
 .nav-item:hover, .nav-item.active {
   color: #e0e0e0;
@@ -198,6 +270,68 @@ function logout() {
   padding: 48px;
   text-align: center;
 }
-.placeholder-card p { font-size: 18px; color: #e0e0e0; }
-.placeholder-card .sub { font-size: 14px; color: #666; margin-top: 8px; }
+.placeholder-card p { color: #ccc; font-size: 16px; }
+.placeholder-card .sub { color: #666; font-size: 13px; margin-top: 8px; }
+
+.users-section { }
+.users-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.users-count { color: #888; font-size: 14px; }
+.table-wrap {
+  background: rgba(255,255,255,0.04);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.users-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.users-table th {
+  text-align: left;
+  padding: 14px 20px;
+  font-size: 13px;
+  color: #888;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  font-weight: 500;
+}
+.users-table td {
+  padding: 14px 20px;
+  font-size: 14px;
+  color: #ccc;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+}
+.users-table tr:last-child td { border-bottom: none; }
+.users-table tr:hover td { background: rgba(255,255,255,0.02); }
+.empty-row { text-align: center; color: #555; padding: 32px !important; }
+.role-tag {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.role-tag.admin { background: rgba(245,175,25,0.15); color: #f5af19; }
+.role-tag.user { background: rgba(255,255,255,0.08); color: #aaa; }
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  margin-top: 20px;
+}
+.pagination button {
+  padding: 8px 16px;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 6px;
+  background: transparent;
+  color: #888;
+  cursor: pointer;
+  font-size: 13px;
+}
+.pagination button:hover:not(:disabled) { color: #f5af19; border-color: #f5af19; }
+.pagination button:disabled { opacity: 0.3; cursor: not-allowed; }
+.pagination span { color: #888; font-size: 13px; }
 </style>
