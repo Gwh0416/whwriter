@@ -4,11 +4,13 @@ import App from './App.vue'
 import Login from './views/Login.vue'
 import Admin from './views/Admin.vue'
 import Write from './views/Write.vue'
+import ChangePassword from './views/ChangePassword.vue'
 import './style.css'
 
 const routes = [
   { path: '/admin', component: Admin, meta: { requiresAuth: true, role: 'admin' } },
   { path: '/write', component: Write, meta: { requiresAuth: true, role: 'user' } },
+  { path: '/change-password', component: ChangePassword, meta: { requiresAuth: true } },
   { path: '/login', component: Login },
   { path: '/:pathMatch(.*)*', redirect: '/login' },
 ]

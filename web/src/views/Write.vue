@@ -5,6 +5,7 @@
         <h1>文豪写作</h1>
       </div>
       <div class="topbar-right">
+        <router-link to="/change-password" class="cp-link">修改密码</router-link>
         <span class="user-name">{{ user?.username }}</span>
         <button class="logout-btn" @click="logout">退出</button>
       </div>
@@ -77,6 +78,13 @@ function logout() {
   gap: 16px;
 }
 .user-name { color: #aaa; font-size: 14px; }
+.cp-link {
+  color: #888;
+  font-size: 13px;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+.cp-link:hover { color: #f5af19; }
 .logout-btn {
   padding: 6px 16px;
   border: 1px solid rgba(255,255,255,0.15);

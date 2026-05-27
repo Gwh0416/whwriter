@@ -44,6 +44,11 @@ type SendCodeRequest struct {
 	Email string `json:"email" binding:"required,email"`
 }
 
+type ChangePasswordRequest struct {
+	Code        string `json:"code" binding:"required,len=6"`
+	NewPassword string `json:"new_password" binding:"required,min=8,max=128"`
+}
+
 type AuthResponse struct {
 	Token    string `json:"token"`
 	UserID   uint   `json:"user_id"`

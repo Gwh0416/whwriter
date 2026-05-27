@@ -163,3 +163,32 @@ func validateUsername(username string) bool {
 	count := len([]rune(username))
 	return count >= 2 && count <= 16
 }
+
+func (s *AuthService) SendChangePasswordCode(email string) error {
+	code := s.emailSvc.GenerateCode()
+	if err := s.userStore.SaveVerificationCode(email, code); err != nil {
+		return err
+	}
+	return s.emailSvc.SendVerificationCode(email, code)
+}
+
+func (s *AuthService) ChangePassword(userID uint, email string, req *models.ChangePasswordRequest) error {
+	if !validatePassword(req.NewPassword) {
+		return ErrWeakPassword
+	}
+
+	ok, err := s.userStore.VerifyCode(email, req.Code)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrInvalidCode
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	return s.userStore.UpdatePassword(userID, string(hash))
+}

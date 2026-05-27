@@ -81,3 +81,7 @@ func (s *UserStore) VerifyCode(email, code string) (bool, error) {
 	s.db.Model(&v).Update("used", true)
 	return true, nil
 }
+
+func (s *UserStore) UpdatePassword(userID uint, passwordHash string) error {
+	return s.db.Model(&models.User{}).Where("id = ?", userID).Update("password_hash", passwordHash).Error
+}

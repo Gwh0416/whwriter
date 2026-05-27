@@ -60,6 +60,9 @@ func SetupRouter(cfg *config.Config, dbStore *store.UserStore, authSvc *service.
 					"role":     c.GetString("role"),
 				})
 			})
+
+			protected.POST("/auth/send-change-password-code", authHandler.SendChangePasswordCode)
+			protected.POST("/auth/change-password", authHandler.ChangePassword)
 		}
 	}
 
