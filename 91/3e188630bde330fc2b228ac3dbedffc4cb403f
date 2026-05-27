@@ -1,0 +1,280 @@
+internal/service/auth.go
+  dcdc0fe58aeaf8d4 166-194 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a1663fbafa96ab5e0fd90de","tool_type":"agent","tool_id":"SearchReplace","line_ranges":[{"Range":[166,194]}]}]}
+web/src/main.js
+  dcdc0fe58aeaf8d4 7,13 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a1663fbafa96ab5e0fd90de","tool_type":"agent","tool_id":"SearchReplace","line_ranges":[{"Single":7},{"Single":13}]}]}
+internal/api/router.go
+  dcdc0fe58aeaf8d4 63-65 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a1663fbafa96ab5e0fd90de","tool_type":"agent","tool_id":"SearchReplace","line_ranges":[{"Range":[63,65]}]}]}
+internal/api/handler/auth.go
+  dcdc0fe58aeaf8d4 82-125 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a1663fbafa96ab5e0fd90de","tool_type":"agent","tool_id":"SearchReplace","line_ranges":[{"Range":[82,125]}]}]}
+pkg/models/user.go
+  dcdc0fe58aeaf8d4 47-51 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a1663fbafa96ab5e0fd90de","tool_type":"agent","tool_id":"SearchReplace","line_ranges":[{"Range":[47,51]}]}]}
+internal/store/user_store.go
+  dcdc0fe58aeaf8d4 84-87 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a1663fbafa96ab5e0fd90de","tool_type":"agent","tool_id":"SearchReplace","line_ranges":[{"Range":[84,87]}]}]}
+web/src/views/Write.vue
+  dcdc0fe58aeaf8d4 8,81-87 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a1663fbafa96ab5e0fd90de","tool_type":"agent","tool_id":"SearchReplace","line_ranges":[{"Single":8},{"Range":[81,87]}]}]}
+web/src/views/Admin.vue
+  dcdc0fe58aeaf8d4 14 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a1663fbafa96ab5e0fd90de","tool_type":"agent","tool_id":"SearchReplace","line_ranges":[{"Single":14}]}]}
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "913e188630bde330fc2b228ac3dbedffc4cb403f",
+  "prompts": {
+    "dcdc0fe58aeaf8d4": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a154808afa96ab5e0fd8979",
+        "model": "DeepSeek-V4-Pro__dev"
+      },
+      "human_author": "gaowenhao.0416 <gaowenhao.0416@bytedance.com>",
+      "messages": [],
+      "total_additions": 340,
+      "total_deletions": 2,
+      "accepted_lines": 340,
+      "overriden_lines": 0
+    }
+  },
+  "attestation_metadata": {
+    "internal/api/handler/auth.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Range": [
+              82,
+              125
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a1663fbafa96ab5e0fd90de",
+            "tool_type": "agent",
+            "tool_id": "SearchReplace",
+            "line_ranges": [
+              {
+                "Range": [
+                  82,
+                  125
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "internal/api/router.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Range": [
+              63,
+              65
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a1663fbafa96ab5e0fd90de",
+            "tool_type": "agent",
+            "tool_id": "SearchReplace",
+            "line_ranges": [
+              {
+                "Range": [
+                  63,
+                  65
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "internal/service/auth.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Range": [
+              166,
+              194
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a1663fbafa96ab5e0fd90de",
+            "tool_type": "agent",
+            "tool_id": "SearchReplace",
+            "line_ranges": [
+              {
+                "Range": [
+                  166,
+                  194
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "internal/store/user_store.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Range": [
+              84,
+              87
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a1663fbafa96ab5e0fd90de",
+            "tool_type": "agent",
+            "tool_id": "SearchReplace",
+            "line_ranges": [
+              {
+                "Range": [
+                  84,
+                  87
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "pkg/models/user.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Range": [
+              47,
+              51
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a1663fbafa96ab5e0fd90de",
+            "tool_type": "agent",
+            "tool_id": "SearchReplace",
+            "line_ranges": [
+              {
+                "Range": [
+                  47,
+                  51
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "web/src/main.js": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Single": 7
+          },
+          {
+            "Single": 13
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a1663fbafa96ab5e0fd90de",
+            "tool_type": "agent",
+            "tool_id": "SearchReplace",
+            "line_ranges": [
+              {
+                "Single": 7
+              },
+              {
+                "Single": 13
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "web/src/views/Admin.vue": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Single": 14
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a1663fbafa96ab5e0fd90de",
+            "tool_type": "agent",
+            "tool_id": "SearchReplace",
+            "line_ranges": [
+              {
+                "Single": 14
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "web/src/views/Write.vue": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Single": 8
+          },
+          {
+            "Range": [
+              81,
+              87
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a1663fbafa96ab5e0fd90de",
+            "tool_type": "agent",
+            "tool_id": "SearchReplace",
+            "line_ranges": [
+              {
+                "Single": 8
+              },
+              {
+                "Range": [
+                  81,
+                  87
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "remote_transcripts": {
+    "dcdc0fe58aeaf8d4": {
+      "tool": "trae",
+      "conversation_id": "6a154808afa96ab5e0fd8979",
+      "session_id": "6a154808afa96ab5e0fd8979",
+      "status": "remote_only",
+      "message": "Remote transcript resolution is not implemented yet for TRAE prompts."
+    }
+  }
+}
