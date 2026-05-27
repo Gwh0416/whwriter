@@ -30,7 +30,24 @@ func NewDB(dsn string) (*gorm.DB, error) {
 		return nil, fmt.Errorf("ping mysql: %w", err)
 	}
 
-	if err := db.AutoMigrate(&models.User{}, &models.EmailVerification{}); err != nil {
+	if err := db.AutoMigrate(
+		&models.User{},
+		&models.EmailVerification{},
+		&models.Genre{},
+		&models.Platform{},
+		&models.Book{},
+		&models.Chapter{},
+		&models.Character{},
+		&models.Hook{},
+		&models.Fact{},
+		&models.ChapterSummary{},
+		&models.BookFoundation{},
+		&models.ChapterSnapshot{},
+		&models.RuntimeArtifact{},
+		&models.Prompt{},
+		&models.LLMConfig{},
+		&models.AgentModelRoute{},
+	); err != nil {
 		return nil, fmt.Errorf("auto migrate: %w", err)
 	}
 
