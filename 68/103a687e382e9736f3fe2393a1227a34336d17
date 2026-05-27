@@ -1,0 +1,994 @@
+backend/internal/repository/mysql/platform.go
+  dcdc0fe58aeaf8d4 1-22 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a16bb0eafa96ab5e0fd98a3","tool_type":"agent","tool_id":"Write","line_ranges":[{"Range":[1,22]}]}]}
+backend/internal/service/auth.go
+  dcdc0fe58aeaf8d4 9-10,26-28,31-32,35,37,43,52,60,68,81,86,95,104-105,122,131,169,175,180-185,198 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a16bb0eafa96ab5e0fd98a3","tool_type":"agent","tool_id":"Write","line_ranges":[{"Range":[9,10]},{"Range":[26,28]},{"Range":[31,32]},{"Single":35},{"Single":37},{"Single":43},{"Single":52},{"Single":60},{"Single":68},{"Single":81},{"Single":86},{"Single":95},{"Range":[104,105]},{"Single":122},{"Single":131},{"Single":169},{"Single":175},{"Range":[180,185]},{"Single":198}]}]}
+backend/internal/handler/admin.go
+  dcdc0fe58aeaf8d4 1-52 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a16bb0eafa96ab5e0fd98a3","tool_type":"agent","tool_id":"Write","line_ranges":[{"Range":[1,52]}]}]}
+backend/internal/repository/mysql/seed_full.go
+  dcdc0fe58aeaf8d4 1-6 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a16bb0eafa96ab5e0fd98a3","tool_type":"agent","tool_id":"Write","line_ranges":[{"Range":[1,6]}]}]}
+backend/internal/container/container.go
+  dcdc0fe58aeaf8d4 1-54 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a16bb0eafa96ab5e0fd98a3","tool_type":"agent","tool_id":"Write","line_ranges":[{"Range":[1,54]}]}]}
+backend/internal/handler/auth.go
+  dcdc0fe58aeaf8d4 1-136 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a16bb0eafa96ab5e0fd98a3","tool_type":"agent","tool_id":"Write","line_ranges":[{"Range":[1,136]}]}]}
+backend/internal/model/config.go
+  dcdc0fe58aeaf8d4 1-52 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a16bb0eafa96ab5e0fd98a3","tool_type":"agent","tool_id":"Write","line_ranges":[{"Range":[1,52]}]}]}
+backend/internal/container/router.go
+  dcdc0fe58aeaf8d4 1-86 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a16bb0eafa96ab5e0fd98a3","tool_type":"agent","tool_id":"Write","line_ranges":[{"Range":[1,86]}]}]}
+backend/internal/repository/interfaces.go
+  dcdc0fe58aeaf8d4 1-39 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a16bb0eafa96ab5e0fd98a3","tool_type":"agent","tool_id":"Write","line_ranges":[{"Range":[1,39]}]}]}
+backend/internal/repository/mysql/db.go
+  dcdc0fe58aeaf8d4 1-56 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a16bb0eafa96ab5e0fd98a3","tool_type":"agent","tool_id":"Write","line_ranges":[{"Range":[1,56]}]}]}
+backend/internal/repository/mysql/user.go
+  dcdc0fe58aeaf8d4 1-109 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a16bb0eafa96ab5e0fd98a3","tool_type":"agent","tool_id":"Write","line_ranges":[{"Range":[1,109]}]}]}
+backend/internal/repository/mysql/llm_config.go
+  dcdc0fe58aeaf8d4 1-22 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a16bb0eafa96ab5e0fd98a3","tool_type":"agent","tool_id":"Write","line_ranges":[{"Range":[1,22]}]}]}
+backend/internal/handler/health.go
+  dcdc0fe58aeaf8d4 1-19 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a16bb0eafa96ab5e0fd98a3","tool_type":"agent","tool_id":"Write","line_ranges":[{"Range":[1,19]}]}]}
+backend/internal/middleware/cors.go
+  dcdc0fe58aeaf8d4 1-22 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a16bb0eafa96ab5e0fd98a3","tool_type":"agent","tool_id":"Write","line_ranges":[{"Range":[1,22]}]}]}
+backend/cmd/whwriter/main.go
+  dcdc0fe58aeaf8d4 13,19,21,24-25,29 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a16bb0eafa96ab5e0fd98a3","tool_type":"agent","tool_id":"Write","line_ranges":[{"Single":13},{"Single":19},{"Single":21},{"Range":[24,25]},{"Single":29}]}]}
+backend/internal/middleware/admin.go
+  dcdc0fe58aeaf8d4 1-21 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a16bb0eafa96ab5e0fd98a3","tool_type":"agent","tool_id":"Write","line_ranges":[{"Range":[1,21]}]}]}
+backend/internal/model/book.go
+  dcdc0fe58aeaf8d4 1-203 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a16bb0eafa96ab5e0fd98a3","tool_type":"agent","tool_id":"Write","line_ranges":[{"Range":[1,203]}]}]}
+backend/internal/repository/mysql/genre.go
+  dcdc0fe58aeaf8d4 1-29 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a16bb0eafa96ab5e0fd98a3","tool_type":"agent","tool_id":"Write","line_ranges":[{"Range":[1,29]}]}]}
+backend/internal/model/book_request.go
+  dcdc0fe58aeaf8d4 1-11 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a16bb0eafa96ab5e0fd98a3","tool_type":"agent","tool_id":"Write","line_ranges":[{"Range":[1,11]}]}]}
+backend/internal/model/genre.go
+  dcdc0fe58aeaf8d4 1-32 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a16bb0eafa96ab5e0fd98a3","tool_type":"agent","tool_id":"Write","line_ranges":[{"Range":[1,32]}]}]}
+backend/internal/repository/mysql/book.go
+  dcdc0fe58aeaf8d4 1-28 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a16bb0eafa96ab5e0fd98a3","tool_type":"agent","tool_id":"Write","line_ranges":[{"Range":[1,28]}]}]}
+backend/internal/handler/book.go
+  dcdc0fe58aeaf8d4 1-56 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a16bb0eafa96ab5e0fd98a3","tool_type":"agent","tool_id":"Write","line_ranges":[{"Range":[1,56]}]}]}
+backend/internal/middleware/auth.go
+  dcdc0fe58aeaf8d4 1-52 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a16bb0eafa96ab5e0fd98a3","tool_type":"agent","tool_id":"Write","line_ranges":[{"Range":[1,52]}]}]}
+backend/internal/model/user.go
+  dcdc0fe58aeaf8d4 1-58 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a16bb0eafa96ab5e0fd98a3","tool_type":"agent","tool_id":"Write","line_ranges":[{"Range":[1,58]}]}]}
+backend/internal/middleware/logger.go
+  dcdc0fe58aeaf8d4 1-22 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a16bb0eafa96ab5e0fd98a3","tool_type":"agent","tool_id":"Write","line_ranges":[{"Range":[1,22]}]}]}
+backend/internal/handler/resource.go
+  dcdc0fe58aeaf8d4 1-51 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a16bb0eafa96ab5e0fd98a3","tool_type":"agent","tool_id":"Write","line_ranges":[{"Range":[1,51]}]}]}
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "68103a687e382e9736f3fe2393a1227a34336d17",
+  "prompts": {
+    "dcdc0fe58aeaf8d4": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a154808afa96ab5e0fd8979",
+        "model": "DeepSeek-V4-Pro__dev"
+      },
+      "human_author": "gaowenhao.0416 <gaowenhao.0416@bytedance.com>",
+      "messages": [],
+      "total_additions": 1367,
+      "total_deletions": 48,
+      "accepted_lines": 1366,
+      "overriden_lines": 0
+    }
+  },
+  "attestation_metadata": {
+    "backend/cmd/whwriter/main.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Single": 13
+          },
+          {
+            "Single": 19
+          },
+          {
+            "Single": 21
+          },
+          {
+            "Range": [
+              24,
+              25
+            ]
+          },
+          {
+            "Single": 29
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a16bb0eafa96ab5e0fd98a3",
+            "tool_type": "agent",
+            "tool_id": "Write",
+            "line_ranges": [
+              {
+                "Single": 13
+              },
+              {
+                "Single": 19
+              },
+              {
+                "Single": 21
+              },
+              {
+                "Range": [
+                  24,
+                  25
+                ]
+              },
+              {
+                "Single": 29
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "backend/internal/container/container.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Range": [
+              1,
+              54
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a16bb0eafa96ab5e0fd98a3",
+            "tool_type": "agent",
+            "tool_id": "Write",
+            "line_ranges": [
+              {
+                "Range": [
+                  1,
+                  54
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "backend/internal/container/router.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Range": [
+              1,
+              86
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a16bb0eafa96ab5e0fd98a3",
+            "tool_type": "agent",
+            "tool_id": "Write",
+            "line_ranges": [
+              {
+                "Range": [
+                  1,
+                  86
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "backend/internal/handler/admin.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Range": [
+              1,
+              52
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a16bb0eafa96ab5e0fd98a3",
+            "tool_type": "agent",
+            "tool_id": "Write",
+            "line_ranges": [
+              {
+                "Range": [
+                  1,
+                  52
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "backend/internal/handler/auth.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Range": [
+              1,
+              136
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a16bb0eafa96ab5e0fd98a3",
+            "tool_type": "agent",
+            "tool_id": "Write",
+            "line_ranges": [
+              {
+                "Range": [
+                  1,
+                  136
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "backend/internal/handler/book.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Range": [
+              1,
+              56
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a16bb0eafa96ab5e0fd98a3",
+            "tool_type": "agent",
+            "tool_id": "Write",
+            "line_ranges": [
+              {
+                "Range": [
+                  1,
+                  56
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "backend/internal/handler/health.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Range": [
+              1,
+              19
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a16bb0eafa96ab5e0fd98a3",
+            "tool_type": "agent",
+            "tool_id": "Write",
+            "line_ranges": [
+              {
+                "Range": [
+                  1,
+                  19
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "backend/internal/handler/resource.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Range": [
+              1,
+              51
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a16bb0eafa96ab5e0fd98a3",
+            "tool_type": "agent",
+            "tool_id": "Write",
+            "line_ranges": [
+              {
+                "Range": [
+                  1,
+                  51
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "backend/internal/middleware/admin.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Range": [
+              1,
+              21
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a16bb0eafa96ab5e0fd98a3",
+            "tool_type": "agent",
+            "tool_id": "Write",
+            "line_ranges": [
+              {
+                "Range": [
+                  1,
+                  21
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "backend/internal/middleware/auth.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Range": [
+              1,
+              52
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a16bb0eafa96ab5e0fd98a3",
+            "tool_type": "agent",
+            "tool_id": "Write",
+            "line_ranges": [
+              {
+                "Range": [
+                  1,
+                  52
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "backend/internal/middleware/cors.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Range": [
+              1,
+              22
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a16bb0eafa96ab5e0fd98a3",
+            "tool_type": "agent",
+            "tool_id": "Write",
+            "line_ranges": [
+              {
+                "Range": [
+                  1,
+                  22
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "backend/internal/middleware/logger.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Range": [
+              1,
+              22
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a16bb0eafa96ab5e0fd98a3",
+            "tool_type": "agent",
+            "tool_id": "Write",
+            "line_ranges": [
+              {
+                "Range": [
+                  1,
+                  22
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "backend/internal/model/book.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Range": [
+              1,
+              203
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a16bb0eafa96ab5e0fd98a3",
+            "tool_type": "agent",
+            "tool_id": "Write",
+            "line_ranges": [
+              {
+                "Range": [
+                  1,
+                  203
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "backend/internal/model/book_request.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Range": [
+              1,
+              11
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a16bb0eafa96ab5e0fd98a3",
+            "tool_type": "agent",
+            "tool_id": "Write",
+            "line_ranges": [
+              {
+                "Range": [
+                  1,
+                  11
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "backend/internal/model/config.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Range": [
+              1,
+              52
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a16bb0eafa96ab5e0fd98a3",
+            "tool_type": "agent",
+            "tool_id": "Write",
+            "line_ranges": [
+              {
+                "Range": [
+                  1,
+                  52
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "backend/internal/model/genre.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Range": [
+              1,
+              32
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a16bb0eafa96ab5e0fd98a3",
+            "tool_type": "agent",
+            "tool_id": "Write",
+            "line_ranges": [
+              {
+                "Range": [
+                  1,
+                  32
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "backend/internal/model/user.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Range": [
+              1,
+              58
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a16bb0eafa96ab5e0fd98a3",
+            "tool_type": "agent",
+            "tool_id": "Write",
+            "line_ranges": [
+              {
+                "Range": [
+                  1,
+                  58
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "backend/internal/repository/interfaces.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Range": [
+              1,
+              39
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a16bb0eafa96ab5e0fd98a3",
+            "tool_type": "agent",
+            "tool_id": "Write",
+            "line_ranges": [
+              {
+                "Range": [
+                  1,
+                  39
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "backend/internal/repository/mysql/book.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Range": [
+              1,
+              28
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a16bb0eafa96ab5e0fd98a3",
+            "tool_type": "agent",
+            "tool_id": "Write",
+            "line_ranges": [
+              {
+                "Range": [
+                  1,
+                  28
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "backend/internal/repository/mysql/db.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Range": [
+              1,
+              56
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a16bb0eafa96ab5e0fd98a3",
+            "tool_type": "agent",
+            "tool_id": "Write",
+            "line_ranges": [
+              {
+                "Range": [
+                  1,
+                  56
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "backend/internal/repository/mysql/genre.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Range": [
+              1,
+              29
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a16bb0eafa96ab5e0fd98a3",
+            "tool_type": "agent",
+            "tool_id": "Write",
+            "line_ranges": [
+              {
+                "Range": [
+                  1,
+                  29
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "backend/internal/repository/mysql/llm_config.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Range": [
+              1,
+              22
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a16bb0eafa96ab5e0fd98a3",
+            "tool_type": "agent",
+            "tool_id": "Write",
+            "line_ranges": [
+              {
+                "Range": [
+                  1,
+                  22
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "backend/internal/repository/mysql/platform.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Range": [
+              1,
+              22
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a16bb0eafa96ab5e0fd98a3",
+            "tool_type": "agent",
+            "tool_id": "Write",
+            "line_ranges": [
+              {
+                "Range": [
+                  1,
+                  22
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "backend/internal/repository/mysql/seed_full.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Range": [
+              1,
+              6
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a16bb0eafa96ab5e0fd98a3",
+            "tool_type": "agent",
+            "tool_id": "Write",
+            "line_ranges": [
+              {
+                "Range": [
+                  1,
+                  6
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "backend/internal/repository/mysql/user.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Range": [
+              1,
+              109
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a16bb0eafa96ab5e0fd98a3",
+            "tool_type": "agent",
+            "tool_id": "Write",
+            "line_ranges": [
+              {
+                "Range": [
+                  1,
+                  109
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "backend/internal/service/auth.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Range": [
+              9,
+              10
+            ]
+          },
+          {
+            "Range": [
+              26,
+              28
+            ]
+          },
+          {
+            "Range": [
+              31,
+              32
+            ]
+          },
+          {
+            "Single": 35
+          },
+          {
+            "Single": 37
+          },
+          {
+            "Single": 43
+          },
+          {
+            "Single": 52
+          },
+          {
+            "Single": 60
+          },
+          {
+            "Single": 68
+          },
+          {
+            "Single": 81
+          },
+          {
+            "Single": 86
+          },
+          {
+            "Single": 95
+          },
+          {
+            "Range": [
+              104,
+              105
+            ]
+          },
+          {
+            "Single": 122
+          },
+          {
+            "Single": 131
+          },
+          {
+            "Single": 169
+          },
+          {
+            "Single": 175
+          },
+          {
+            "Range": [
+              180,
+              185
+            ]
+          },
+          {
+            "Single": 198
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a16bb0eafa96ab5e0fd98a3",
+            "tool_type": "agent",
+            "tool_id": "Write",
+            "line_ranges": [
+              {
+                "Range": [
+                  9,
+                  10
+                ]
+              },
+              {
+                "Range": [
+                  26,
+                  28
+                ]
+              },
+              {
+                "Range": [
+                  31,
+                  32
+                ]
+              },
+              {
+                "Single": 35
+              },
+              {
+                "Single": 37
+              },
+              {
+                "Single": 43
+              },
+              {
+                "Single": 52
+              },
+              {
+                "Single": 60
+              },
+              {
+                "Single": 68
+              },
+              {
+                "Single": 81
+              },
+              {
+                "Single": 86
+              },
+              {
+                "Single": 95
+              },
+              {
+                "Range": [
+                  104,
+                  105
+                ]
+              },
+              {
+                "Single": 122
+              },
+              {
+                "Single": 131
+              },
+              {
+                "Single": 169
+              },
+              {
+                "Single": 175
+              },
+              {
+                "Range": [
+                  180,
+                  185
+                ]
+              },
+              {
+                "Single": 198
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "remote_transcripts": {
+    "dcdc0fe58aeaf8d4": {
+      "tool": "trae",
+      "conversation_id": "6a154808afa96ab5e0fd8979",
+      "session_id": "6a154808afa96ab5e0fd8979",
+      "status": "remote_only",
+      "message": "Remote transcript resolution is not implemented yet for TRAE prompts."
+    }
+  }
+}
