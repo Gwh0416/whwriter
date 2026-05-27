@@ -1,0 +1,113 @@
+frontend/src/views/CreateBook.vue
+  dcdc0fe58aeaf8d4 101 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a16b0a9afa96ab5e0fd971b","tool_type":"agent","tool_id":"SearchReplace","line_ranges":[{"Single":101}]}]}
+backend/internal/api/handler/resource.go
+  dcdc0fe58aeaf8d4 45 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a16b0a9afa96ab5e0fd971b","tool_type":"agent","tool_id":"SearchReplace","line_ranges":[{"Single":45}]}]}
+backend/internal/store/llm_config_store.go
+  dcdc0fe58aeaf8d4 17,19 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a16b0a9afa96ab5e0fd971b","tool_type":"agent","tool_id":"SearchReplace","line_ranges":[{"Single":17},{"Single":19}]}]}
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "9d915059c1b1f7d89b46aa8b5393870ea60d093c",
+  "prompts": {
+    "dcdc0fe58aeaf8d4": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a154808afa96ab5e0fd8979",
+        "model": "DeepSeek-V4-Pro__dev"
+      },
+      "human_author": "gaowenhao.0416 <gaowenhao.0416@bytedance.com>",
+      "messages": [],
+      "total_additions": 4,
+      "total_deletions": 6,
+      "accepted_lines": 4,
+      "overriden_lines": 0
+    }
+  },
+  "attestation_metadata": {
+    "backend/internal/api/handler/resource.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Single": 45
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a16b0a9afa96ab5e0fd971b",
+            "tool_type": "agent",
+            "tool_id": "SearchReplace",
+            "line_ranges": [
+              {
+                "Single": 45
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "backend/internal/store/llm_config_store.go": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Single": 17
+          },
+          {
+            "Single": 19
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a16b0a9afa96ab5e0fd971b",
+            "tool_type": "agent",
+            "tool_id": "SearchReplace",
+            "line_ranges": [
+              {
+                "Single": 17
+              },
+              {
+                "Single": 19
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "frontend/src/views/CreateBook.vue": [
+      {
+        "hash": "dcdc0fe58aeaf8d4",
+        "line_ranges": [
+          {
+            "Single": 101
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a16b0a9afa96ab5e0fd971b",
+            "tool_type": "agent",
+            "tool_id": "SearchReplace",
+            "line_ranges": [
+              {
+                "Single": 101
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "remote_transcripts": {
+    "dcdc0fe58aeaf8d4": {
+      "tool": "trae",
+      "conversation_id": "6a154808afa96ab5e0fd8979",
+      "session_id": "6a154808afa96ab5e0fd8979",
+      "status": "remote_only",
+      "message": "Remote transcript resolution is not implemented yet for TRAE prompts."
+    }
+  }
+}
