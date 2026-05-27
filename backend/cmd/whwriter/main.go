@@ -30,10 +30,14 @@ func main() {
 	store.SeedPlatforms(db)
 
 	userStore := store.NewUserStore(db)
+	genreStore := store.NewGenreStore(db)
+	platformStore := store.NewPlatformStore(db)
+	llmStore := store.NewLLMConfigStore(db)
+	bookStore := store.NewBookStore(db)
 	emailSvc := service.NewEmailService(cfg.SMTP)
 	authSvc := service.NewAuthService(userStore, emailSvc, cfg)
 
-	router := api.SetupRouter(cfg, userStore, authSvc)
+	router := api.SetupRouter(cfg, userStore, authSvc, genreStore, platformStore, llmStore, bookStore)
 
 	srv := &http.Server{
 		Addr:         cfg.Addr(),

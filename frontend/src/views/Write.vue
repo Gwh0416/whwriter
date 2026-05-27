@@ -16,7 +16,7 @@
         <h2>开始你的创作之旅</h2>
         <p>AI 驱动的智能写作助手，帮你完成从构思到成稿的全流程</p>
         <div class="actions">
-          <button class="action-btn primary">创建新小说</button>
+          <router-link to="/create-book" class="action-btn primary">创建新小说</router-link>
           <button class="action-btn">导入大纲</button>
         </div>
       </div>
@@ -125,6 +125,8 @@ function logout() {
   border: 1px solid rgba(255,255,255,0.15);
   background: transparent;
   color: #aaa;
+  text-decoration: none;
+  display: inline-block;
 }
 .action-btn:hover { border-color: #f5af19; color: #f5af19; }
 .action-btn.primary {

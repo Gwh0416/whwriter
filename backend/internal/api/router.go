@@ -10,7 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func SetupRouter(cfg *config.Config, dbStore *store.UserStore, authSvc *service.AuthService) *gin.Engine {
+func SetupRouter(cfg *config.Config, dbStore *store.UserStore, authSvc *service.AuthService, genreStore *store.GenreStore, platformStore *store.PlatformStore, llmStore *store.LLMConfigStore, bookStore *store.BookStore) *gin.Engine {
 	if !cfg.IsDev() {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -37,6 +37,8 @@ func SetupRouter(cfg *config.Config, dbStore *store.UserStore, authSvc *service.
 	})
 
 	authHandler := handler.NewAuthHandler(authSvc)
+	resourceHandler := handler.NewResourceHandler(genreStore, platformStore, llmStore)
+	bookHandler := handler.NewBookHandler(bookStore)
 
 	api := r.Group("/api/v1")
 	{
@@ -63,6 +65,13 @@ func SetupRouter(cfg *config.Config, dbStore *store.UserStore, authSvc *service.
 
 			protected.POST("/auth/send-change-password-code", authHandler.SendChangePasswordCode)
 			protected.POST("/auth/change-password", authHandler.ChangePassword)
+
+			protected.GET("/genres", resourceHandler.ListGenres)
+			protected.GET("/platforms", resourceHandler.ListPlatforms)
+			protected.GET("/llm-configs", resourceHandler.ListLLMConfigs)
+
+			protected.POST("/books", bookHandler.Create)
+			protected.GET("/books", bookHandler.List)
 		}
 	}
 
