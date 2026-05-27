@@ -2,22 +2,6 @@ package model
 
 import "time"
 
-type Prompt struct {
-	ID        uint      `json:"id" gorm:"primaryKey"`
-	AgentName string    `json:"agent_name" gorm:"size:64;not null"`
-	PromptType string   `json:"prompt_type" gorm:"size:64;default:system"`
-	Language  string    `json:"language" gorm:"size:8;default:zh"`
-	Version   uint      `json:"version" gorm:"default:1"`
-	Content   string    `json:"content" gorm:"type:longtext"`
-	IsActive  bool      `json:"is_active" gorm:"default:true"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
-func (Prompt) TableName() string {
-	return "prompts"
-}
-
 type LLMConfig struct {
 	ID              uint      `json:"id" gorm:"primaryKey"`
 	Provider        string    `json:"provider" gorm:"size:64;not null"`

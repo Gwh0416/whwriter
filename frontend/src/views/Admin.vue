@@ -48,9 +48,15 @@
               <div class="stat-label">今日调用</div>
             </div>
           </div>
-          <div class="placeholder-card">
-            <p>欢迎使用文豪写作管理后台</p>
-            <p class="sub">更多管理功能即将上线</p>
+          <div class="init-card">
+            <div class="init-header">
+              <h3>系统初始化</h3>
+              <p class="init-desc">初始化内置题材、平台配置和 AI Agent 提示词。如果数据已存在则跳过。</p>
+            </div>
+            <button class="init-btn" :disabled="initializing" @click="initialize">
+              {{ initializing ? '初始化中...' : '一键初始化' }}
+            </button>
+            <p v-if="initMsg" class="init-msg" :class="{ error: initError }">{{ initMsg }}</p>
           </div>
         </div>
 
@@ -110,6 +116,9 @@ const users = ref([])
 const userTotal = ref(0)
 const page = ref(1)
 const pageSize = 20
+const initializing = ref(false)
+const initMsg = ref('')
+const initError = ref(false)
 
 const totalPages = computed(() => Math.ceil(userTotal.value / pageSize) || 1)
 
@@ -141,6 +150,27 @@ async function loadUsers() {
 function formatDate(d) {
   if (!d) return '-'
   return new Date(d).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
+async function initialize() {
+  initializing.value = true
+  initMsg.value = ''
+  initError.value = false
+  try {
+    const res = await fetch('/api/v1/admin/initialize', { method: 'POST', headers })
+    if (res.ok) {
+      initMsg.value = '初始化成功！题材、平台和 Agent 提示词已就绪。'
+    } else {
+      const data = await res.json()
+      initMsg.value = data.error || '初始化失败'
+      initError.value = true
+    }
+  } catch {
+    initMsg.value = '网络错误，请重试'
+    initError.value = true
+  } finally {
+    initializing.value = false
+  }
 }
 
 function logout() {
@@ -264,14 +294,28 @@ function logout() {
   background-clip: text;
 }
 .stat-label { font-size: 14px; color: #888; margin-top: 8px; }
-.placeholder-card {
+.init-card {
   background: rgba(255,255,255,0.04);
   border-radius: 12px;
-  padding: 48px;
-  text-align: center;
+  padding: 32px;
 }
-.placeholder-card p { color: #ccc; font-size: 16px; }
-.placeholder-card .sub { color: #666; font-size: 13px; margin-top: 8px; }
+.init-header { margin-bottom: 20px; }
+.init-header h3 { color: #e0e0e0; font-size: 18px; margin-bottom: 8px; }
+.init-desc { color: #666; font-size: 13px; line-height: 1.6; }
+.init-btn {
+  padding: 10px 28px;
+  border: none;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #f5af19, #f12711);
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+.init-btn:hover:not(:disabled) { opacity: 0.9; }
+.init-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.init-msg { margin-top: 16px; font-size: 13px; color: #4caf50; }
+.init-msg.error { color: #f44336; }
 
 .users-section { }
 .users-header {

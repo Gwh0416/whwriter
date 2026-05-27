@@ -71,6 +71,11 @@ func SeedGenres(db *gorm.DB) {
 	log.Printf("seed genres: created %d built-in genres", len(genres))
 }
 
+func SeedAll(db *gorm.DB) {
+	SeedGenres(db)
+	SeedPlatforms(db)
+}
+
 func SeedPlatforms(db *gorm.DB) {
 	var count int64
 	db.Model(&model.Platform{}).Count(&count)

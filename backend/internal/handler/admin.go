@@ -5,16 +5,19 @@ import (
 	"strconv"
 
 	"whwriter/backend/internal/repository"
+	"whwriter/backend/internal/repository/mysql"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type AdminHandler struct {
 	userRepo repository.UserRepository
+	db       *gorm.DB
 }
 
-func NewAdminHandler(userRepo repository.UserRepository) *AdminHandler {
-	return &AdminHandler{userRepo: userRepo}
+func NewAdminHandler(userRepo repository.UserRepository, db *gorm.DB) *AdminHandler {
+	return &AdminHandler{userRepo: userRepo, db: db}
 }
 
 func (h *AdminHandler) GetStats(c *gin.Context) {
@@ -49,4 +52,9 @@ func (h *AdminHandler) ListUsers(c *gin.Context) {
 		"page":      page,
 		"page_size": pageSize,
 	})
+}
+
+func (h *AdminHandler) Initialize(c *gin.Context) {
+	mysql.SeedAll(h.db)
+	c.JSON(http.StatusOK, gin.H{"message": "初始化完成"})
 }

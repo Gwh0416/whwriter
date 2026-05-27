@@ -44,7 +44,6 @@ func NewDB(dsn string) (*gorm.DB, error) {
 		&model.BookFoundation{},
 		&model.ChapterSnapshot{},
 		&model.RuntimeArtifact{},
-		&model.Prompt{},
 		&model.LLMConfig{},
 		&model.AgentModelRoute{},
 	); err != nil {

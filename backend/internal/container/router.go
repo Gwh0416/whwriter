@@ -38,7 +38,7 @@ func SetupRouter(c *Container) *gin.Engine {
 	authHandler := handler.NewAuthHandler(c.AuthSvc)
 	resourceHandler := handler.NewResourceHandler(c.GenreRepo, c.PlatformRepo, c.LLMConfigRepo)
 	bookHandler := handler.NewBookHandler(c.BookRepo)
-	adminHandler := handler.NewAdminHandler(c.UserRepo)
+	adminHandler := handler.NewAdminHandler(c.UserRepo, c.DB)
 
 	api := r.Group("/api/v1")
 	{
@@ -78,6 +78,7 @@ func SetupRouter(c *Container) *gin.Engine {
 			{
 				admin.GET("/stats", adminHandler.GetStats)
 				admin.GET("/users", adminHandler.ListUsers)
+				admin.POST("/initialize", adminHandler.Initialize)
 			}
 		}
 	}
