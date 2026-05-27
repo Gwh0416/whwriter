@@ -14,8 +14,8 @@ func NewLLMConfigStore(db *gorm.DB) *LLMConfigStore {
 	return &LLMConfigStore{db: db}
 }
 
-func (s *LLMConfigStore) ListByUser(userID uint) ([]models.LLMConfig, error) {
+func (s *LLMConfigStore) List() ([]models.LLMConfig, error) {
 	var configs []models.LLMConfig
-	err := s.db.Where("user_id = ?", userID).Order("id").Find(&configs).Error
+	err := s.db.Order("id").Find(&configs).Error
 	return configs, err
 }

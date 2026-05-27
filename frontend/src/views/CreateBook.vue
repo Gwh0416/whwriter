@@ -98,7 +98,7 @@
               </option>
             </select>
             <span class="hint" v-if="llmConfigs.length === 0">
-              暂无可用模型，请先在设置中配置 LLM
+              暂无可用模型，请联系管理员配置
             </span>
           </div>
         </div>

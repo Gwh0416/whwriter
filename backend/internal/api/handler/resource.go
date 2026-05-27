@@ -42,8 +42,7 @@ func (h *ResourceHandler) ListPlatforms(c *gin.Context) {
 }
 
 func (h *ResourceHandler) ListLLMConfigs(c *gin.Context) {
-	userID := c.GetUint("user_id")
-	configs, err := h.llmStore.ListByUser(userID)
+	configs, err := h.llmStore.List()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取模型配置失败"})
 		return

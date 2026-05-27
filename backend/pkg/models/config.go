@@ -20,7 +20,6 @@ func (Prompt) TableName() string {
 
 type LLMConfig struct {
 	ID              uint      `json:"id" gorm:"primaryKey"`
-	UserID          uint      `json:"user_id" gorm:"index;not null"`
 	Provider        string    `json:"provider" gorm:"size:64;not null"`
 	Service         string    `json:"service" gorm:"size:64"`
 	BaseURL         string    `json:"base_url" gorm:"size:512"`
