@@ -9,14 +9,23 @@ const (
 	RoleUser  Role = "user"
 )
 
+type UserStatus string
+
+const (
+	UserStatusActive   UserStatus = "active"
+	UserStatusDisabled UserStatus = "disabled"
+)
+
 type User struct {
-	ID           uint      `json:"id" gorm:"primaryKey"`
-	Email        string    `json:"email" gorm:"uniqueIndex;size:255;not null"`
-	Username     string    `json:"username" gorm:"uniqueIndex;size:128;not null"`
-	PasswordHash string    `json:"-" gorm:"size:255;not null"`
-	Role         Role      `json:"role" gorm:"size:16;not null;default:user"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID           uint       `json:"id" gorm:"primaryKey"`
+	Email        string     `json:"email" gorm:"uniqueIndex;size:255;not null"`
+	Username     string     `json:"username" gorm:"uniqueIndex;size:128;not null"`
+	PasswordHash string     `json:"-" gorm:"size:255;not null"`
+	Role         Role       `json:"role" gorm:"size:16;not null;default:user"`
+	Status       UserStatus `json:"status" gorm:"size:16;not null;default:active"`
+	Balance      int64      `json:"balance" gorm:"default:0"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
 }
 
 type EmailVerification struct {

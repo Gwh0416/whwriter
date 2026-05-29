@@ -18,6 +18,7 @@ var (
 	ErrUsernameAlreadyExists = errors.New("用户名已被占用")
 	ErrInvalidCode           = errors.New("验证码无效或已过期")
 	ErrInvalidCredentials    = errors.New("邮箱或密码错误")
+	ErrAccountDisabled       = errors.New("账户已被禁用")
 	ErrWeakPassword          = errors.New("密码强度不足：需要至少8位，包含大小写字母和数字")
 	ErrInvalidUsername       = errors.New("用户名需为2-16个字符")
 )
@@ -108,6 +109,10 @@ func (s *AuthService) Login(req *model.LoginRequest) (*model.AuthResponse, error
 	}
 	if user == nil {
 		return nil, ErrInvalidCredentials
+	}
+
+	if user.Status == model.UserStatusDisabled {
+		return nil, ErrAccountDisabled
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {

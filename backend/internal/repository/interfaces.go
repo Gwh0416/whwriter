@@ -12,6 +12,8 @@ type UserRepository interface {
 	UpdatePassword(userID uint, passwordHash string) error
 	ListUsers(page, pageSize int) ([]model.User, int64, error)
 	GetStats() (*DashboardStats, error)
+	UpdateStatus(userID uint, status model.UserStatus) error
+	AddBalance(userID uint, amount int64) error
 }
 
 type DashboardStats struct {
@@ -23,10 +25,20 @@ type DashboardStats struct {
 type GenreRepository interface {
 	ListBuiltin() ([]model.Genre, error)
 	ListByUser(userID uint) ([]model.Genre, error)
+	ListMyGenres(userID uint) ([]model.Genre, error)
+	ListAll() ([]model.Genre, error)
+	FindByID(id uint) (*model.Genre, error)
+	Create(genre *model.Genre) error
+	Update(genre *model.Genre) error
+	Delete(id uint) error
 }
 
 type PlatformRepository interface {
 	List() ([]model.Platform, error)
+	ListAll() ([]model.Platform, error)
+	Create(platform *model.Platform) error
+	Update(platform *model.Platform) error
+	Delete(id uint) error
 }
 
 type LLMConfigRepository interface {

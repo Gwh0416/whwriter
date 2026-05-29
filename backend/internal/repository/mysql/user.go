@@ -107,3 +107,11 @@ func (r *userRepo) GetStats() (*repository.DashboardStats, error) {
 
 	return &stats, nil
 }
+
+func (r *userRepo) UpdateStatus(userID uint, status model.UserStatus) error {
+	return r.db.Model(&model.User{}).Where("id = ?", userID).Update("status", status).Error
+}
+
+func (r *userRepo) AddBalance(userID uint, amount int64) error {
+	return r.db.Model(&model.User{}).Where("id = ?", userID).Update("balance", gorm.Expr("balance + ?", amount)).Error
+}

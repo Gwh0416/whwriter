@@ -38,7 +38,7 @@ func SetupRouter(c *Container) *gin.Engine {
 	authHandler := handler.NewAuthHandler(c.AuthSvc)
 	resourceHandler := handler.NewResourceHandler(c.GenreRepo, c.PlatformRepo, c.LLMConfigRepo)
 	bookHandler := handler.NewBookHandler(c.BookRepo)
-	adminHandler := handler.NewAdminHandler(c.UserRepo, c.DB)
+	adminHandler := handler.NewAdminHandler(c.UserRepo, c.GenreRepo, c.PlatformRepo, c.DB)
 
 	api := r.Group("/api/v1")
 	{
@@ -67,6 +67,10 @@ func SetupRouter(c *Container) *gin.Engine {
 			protected.POST("/auth/change-password", authHandler.ChangePassword)
 
 			protected.GET("/genres", resourceHandler.ListGenres)
+			protected.GET("/my-genres", resourceHandler.ListMyGenres)
+			protected.POST("/my-genres", resourceHandler.CreateMyGenre)
+			protected.PUT("/my-genres/:id", resourceHandler.UpdateMyGenre)
+			protected.DELETE("/my-genres/:id", resourceHandler.DeleteMyGenre)
 			protected.GET("/platforms", resourceHandler.ListPlatforms)
 			protected.GET("/llm-configs", resourceHandler.ListLLMConfigs)
 
@@ -79,6 +83,19 @@ func SetupRouter(c *Container) *gin.Engine {
 				admin.GET("/stats", adminHandler.GetStats)
 				admin.GET("/users", adminHandler.ListUsers)
 				admin.POST("/initialize", adminHandler.Initialize)
+
+				admin.PUT("/users/:id/status", adminHandler.UpdateUserStatus)
+				admin.POST("/users/:id/balance", adminHandler.AddBalance)
+
+				admin.GET("/genres", adminHandler.ListGenres)
+				admin.POST("/genres", adminHandler.CreateGenre)
+				admin.PUT("/genres/:id", adminHandler.UpdateGenre)
+				admin.DELETE("/genres/:id", adminHandler.DeleteGenre)
+
+				admin.GET("/platforms", adminHandler.ListPlatforms)
+				admin.POST("/platforms", adminHandler.CreatePlatform)
+				admin.PUT("/platforms/:id", adminHandler.UpdatePlatform)
+				admin.DELETE("/platforms/:id", adminHandler.DeletePlatform)
 			}
 		}
 	}

@@ -69,7 +69,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	resp, err := h.authSvc.Login(&req)
 	if err != nil {
-		if errors.Is(err, service.ErrInvalidCredentials) {
+		if errors.Is(err, service.ErrInvalidCredentials) || errors.Is(err, service.ErrAccountDisabled) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		} else {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "登录失败，请稍后重试"})
