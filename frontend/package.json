@@ -9,6 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "js-yaml": "^4.1.1",
+    "marked": "^18.0.4",
     "vue": "^3.5.34",
     "vue-router": "^4.6.4"
   },
