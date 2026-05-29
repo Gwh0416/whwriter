@@ -20,7 +20,7 @@ func NewBookHandler(bookRepo repository.BookRepository) *BookHandler {
 func (h *BookHandler) Create(c *gin.Context) {
 	var req model.CreateBookRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请填写完整的书籍信息"})
+		ErrIncompleteBook.JSON(c)
 		return
 	}
 
@@ -38,7 +38,7 @@ func (h *BookHandler) Create(c *gin.Context) {
 	}
 
 	if err := h.bookRepo.Create(book); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建书籍失败"})
+		ErrBookCreateFailed.JSON(c)
 		return
 	}
 
@@ -49,7 +49,7 @@ func (h *BookHandler) List(c *gin.Context) {
 	userID := c.GetUint("user_id")
 	books, err := h.bookRepo.ListByUser(userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取书籍列表失败"})
+		ErrBookListFailed.JSON(c)
 		return
 	}
 	c.JSON(http.StatusOK, books)

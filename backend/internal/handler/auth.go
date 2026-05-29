@@ -21,12 +21,12 @@ func NewAuthHandler(authSvc *service.AuthService) *AuthHandler {
 func (h *AuthHandler) SendCode(c *gin.Context) {
 	var req model.SendCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请输入有效的邮箱地址"})
+		ErrInvalidEmail.JSON(c)
 		return
 	}
 
 	if err := h.authSvc.SendCode(&req); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "发送验证码失败"})
+		ErrSendCodeFailed.JSON(c)
 		return
 	}
 
@@ -36,23 +36,20 @@ func (h *AuthHandler) SendCode(c *gin.Context) {
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req model.RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请填写完整的注册信息"})
+		ErrIncompleteRegister.JSON(c)
 		return
 	}
 
 	resp, err := h.authSvc.Register(&req)
 	if err != nil {
 		switch {
-		case errors.Is(err, service.ErrWeakPassword):
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		case errors.Is(err, service.ErrInvalidCode):
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		case errors.Is(err, service.ErrEmailAlreadyExists):
-			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
-		case errors.Is(err, service.ErrUsernameAlreadyExists):
-			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		case errors.Is(err, service.ErrWeakPassword),
+			errors.Is(err, service.ErrInvalidCode),
+			errors.Is(err, service.ErrEmailAlreadyExists),
+			errors.Is(err, service.ErrUsernameAlreadyExists):
+			ErrJSON(c, http.StatusBadRequest, CodeBadRequest, err.Error())
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "注册失败，请稍后重试"})
+			ErrRegisterFailed.JSON(c)
 		}
 		return
 	}
@@ -63,16 +60,16 @@ func (h *AuthHandler) Register(c *gin.Context) {
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req model.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请输入邮箱和密码"})
+		ErrMissingCredentials.JSON(c)
 		return
 	}
 
 	resp, err := h.authSvc.Login(&req)
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidCredentials) || errors.Is(err, service.ErrAccountDisabled) {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+			ErrJSON(c, http.StatusUnauthorized, CodeInvalidCredentials, err.Error())
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "登录失败，请稍后重试"})
+			ErrLoginFailed.JSON(c)
 		}
 		return
 	}
@@ -83,18 +80,18 @@ func (h *AuthHandler) Login(c *gin.Context) {
 func (h *AuthHandler) SendChangePasswordCode(c *gin.Context) {
 	role := c.GetString("role")
 	if role == string(model.RoleAdmin) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "管理员不支持修改密码"})
+		ErrAdminNoPassword.JSON(c)
 		return
 	}
 
 	email := c.GetString("email")
 	if email == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "未登录"})
+		ErrUnauthorized.JSON(c)
 		return
 	}
 
 	if err := h.authSvc.SendChangePasswordCode(email); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "发送验证码失败"})
+		ErrSendCodeFailed.JSON(c)
 		return
 	}
 
@@ -104,30 +101,29 @@ func (h *AuthHandler) SendChangePasswordCode(c *gin.Context) {
 func (h *AuthHandler) ChangePassword(c *gin.Context) {
 	role := c.GetString("role")
 	if role == string(model.RoleAdmin) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "管理员不支持修改密码"})
+		ErrAdminNoPassword.JSON(c)
 		return
 	}
 
 	userID := c.GetUint("user_id")
 	if userID == 0 {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "未登录"})
+		ErrUnauthorized.JSON(c)
 		return
 	}
 
 	var req model.ChangePasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请填写完整信息"})
+		ErrIncompleteChangePwd.JSON(c)
 		return
 	}
 
 	if err := h.authSvc.ChangePassword(userID, &req); err != nil {
 		switch {
-		case errors.Is(err, service.ErrWeakPassword):
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		case errors.Is(err, service.ErrInvalidCode):
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		case errors.Is(err, service.ErrWeakPassword),
+			errors.Is(err, service.ErrInvalidCode):
+			ErrJSON(c, http.StatusBadRequest, CodeBadRequest, err.Error())
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "修改密码失败"})
+			ErrChangePwdFailed.JSON(c)
 		}
 		return
 	}
