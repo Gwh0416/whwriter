@@ -154,11 +154,14 @@ async function handleRegister() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+  background: linear-gradient(135deg, #eff6ff, #dbeafe, #e0e7ff);
 }
 .auth-card {
   width: 420px;
   padding: 40px;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.06);
 }
 .logo {
   text-align: center;
@@ -167,14 +170,14 @@ async function handleRegister() {
 .logo h1 {
   font-size: 36px;
   font-weight: 700;
-  background: linear-gradient(135deg, #f5af19, #f12711);
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
   letter-spacing: 4px;
 }
 .logo p {
-  color: #888;
+  color: #64748b;
   margin-top: 8px;
   font-size: 14px;
   letter-spacing: 2px;
@@ -182,22 +185,22 @@ async function handleRegister() {
 .tabs {
   display: flex;
   margin-bottom: 28px;
-  border-bottom: 1px solid rgba(255,255,255,0.1);
+  border-bottom: 1px solid #e2e8f0;
 }
 .tabs button {
   flex: 1;
   padding: 12px 0;
   border: none;
   background: none;
-  color: #888;
+  color: #94a3b8;
   font-size: 16px;
   cursor: pointer;
   border-bottom: 2px solid transparent;
   transition: all 0.3s;
 }
 .tabs button.active {
-  color: #f5af19;
-  border-bottom-color: #f5af19;
+  color: #2563eb;
+  border-bottom-color: #2563eb;
 }
 .form-group {
   margin-bottom: 20px;
@@ -206,22 +209,22 @@ async function handleRegister() {
   display: block;
   margin-bottom: 6px;
   font-size: 14px;
-  color: #aaa;
+  color: #475569;
 }
 .form-group input {
   width: 100%;
   padding: 12px 16px;
-  border: 1px solid rgba(255,255,255,0.12);
+  border: 1px solid #e2e8f0;
   border-radius: 8px;
-  background: rgba(255,255,255,0.06);
-  color: #e0e0e0;
+  background: #f8fafc;
+  color: #1e293b;
   font-size: 15px;
   outline: none;
   transition: border-color 0.3s;
   box-sizing: border-box;
 }
 .form-group input:focus {
-  border-color: #f5af19;
+  border-color: #2563eb;
 }
 .code-row {
   display: flex;
@@ -233,22 +236,22 @@ async function handleRegister() {
 .code-btn {
   white-space: nowrap;
   padding: 12px 16px;
-  border: 1px solid #f5af19;
+  border: 1px solid #2563eb;
   border-radius: 8px;
   background: transparent;
-  color: #f5af19;
+  color: #2563eb;
   cursor: pointer;
   font-size: 14px;
   transition: all 0.3s;
 }
-.code-btn:hover { background: rgba(245,175,25,0.1); }
+.code-btn:hover { background: rgba(37,99,235,0.08); }
 .code-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .submit-btn {
   width: 100%;
   padding: 14px;
   border: none;
   border-radius: 8px;
-  background: linear-gradient(135deg, #f5af19, #f12711);
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
   color: #fff;
   font-size: 16px;
   font-weight: 600;
@@ -259,7 +262,7 @@ async function handleRegister() {
 }
 .submit-btn:hover { opacity: 0.9; }
 .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.error-msg { color: #f12711; font-size: 13px; margin-top: 4px; }
-.success-msg { color: #4caf50; font-size: 13px; margin-top: 4px; }
-.hint { font-size: 12px; color: #666; margin-top: 4px; }
+.error-msg { color: #dc2626; font-size: 13px; margin-top: 4px; }
+.success-msg { color: #16a34a; font-size: 13px; margin-top: 4px; }
+.hint { font-size: 12px; color: #94a3b8; margin-top: 4px; }
 </style>

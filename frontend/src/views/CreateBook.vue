@@ -196,7 +196,7 @@ function logout() {
 <style scoped>
 .create-book-container {
   min-height: 100vh;
-  background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+  background: #f8fafc;
   display: flex;
   flex-direction: column;
 }
@@ -206,7 +206,8 @@ function logout() {
   justify-content: space-between;
   align-items: center;
   padding: 16px 32px;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  background: #fff;
+  border-bottom: 1px solid #e2e8f0;
 }
 
 .topbar-left {
@@ -216,17 +217,17 @@ function logout() {
 }
 
 .back-link {
-  color: #888;
+  color: #64748b;
   text-decoration: none;
   font-size: 14px;
   transition: color 0.2s;
 }
 
-.back-link:hover { color: #f5af19; }
+.back-link:hover { color: #2563eb; }
 
 .topbar-left h1 {
   font-size: 20px;
-  background: linear-gradient(135deg, #f5af19, #f12711);
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -238,19 +239,19 @@ function logout() {
   gap: 16px;
 }
 
-.user-name { color: #aaa; font-size: 14px; }
+.user-name { color: #64748b; font-size: 14px; }
 
 .logout-btn {
   padding: 6px 16px;
-  border: 1px solid rgba(255,255,255,0.15);
+  border: 1px solid #e2e8f0;
   border-radius: 6px;
   background: transparent;
-  color: #888;
+  color: #64748b;
   cursor: pointer;
   font-size: 13px;
 }
 
-.logout-btn:hover { color: #f12711; border-color: #f12711; }
+.logout-btn:hover { color: #dc2626; border-color: #dc2626; }
 
 .main-content {
   flex: 1;
@@ -265,19 +266,20 @@ function logout() {
 }
 
 .form-section {
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.06);
+  background: #fff;
+  border: 1px solid #e2e8f0;
   border-radius: 12px;
   padding: 28px;
   margin-bottom: 20px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
 }
 
 .form-section h3 {
   font-size: 16px;
-  color: #ccc;
+  color: #1e293b;
   margin-bottom: 20px;
   padding-bottom: 12px;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  border-bottom: 1px solid #e2e8f0;
 }
 
 .form-group {
@@ -289,21 +291,21 @@ function logout() {
 .form-group label {
   display: block;
   font-size: 13px;
-  color: #999;
+  color: #475569;
   margin-bottom: 6px;
 }
 
-.required { color: #f12711; }
+.required { color: #dc2626; }
 
 .form-group input,
 .form-group select,
 .form-group textarea {
   width: 100%;
   padding: 10px 14px;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.1);
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
   border-radius: 8px;
-  color: #e0e0e0;
+  color: #1e293b;
   font-size: 14px;
   font-family: inherit;
   outline: none;
@@ -313,21 +315,21 @@ function logout() {
 .form-group input:focus,
 .form-group select:focus,
 .form-group textarea:focus {
-  border-color: rgba(245,175,25,0.4);
+  border-color: #2563eb;
 }
 
 .form-group select {
   cursor: pointer;
   appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2364748b' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 12px center;
   padding-right: 36px;
 }
 
 .form-group select option {
-  background: #1a1a2e;
-  color: #e0e0e0;
+  background: #fff;
+  color: #1e293b;
 }
 
 .form-group textarea {
@@ -345,7 +347,7 @@ function logout() {
 .hint {
   display: block;
   font-size: 12px;
-  color: #666;
+  color: #94a3b8;
   margin-top: 4px;
 }
 
@@ -362,22 +364,22 @@ function logout() {
 
 .btn-cancel {
   padding: 10px 24px;
-  border: 1px solid rgba(255,255,255,0.15);
+  border: 1px solid #e2e8f0;
   border-radius: 8px;
   background: transparent;
-  color: #888;
+  color: #64748b;
   cursor: pointer;
   font-size: 14px;
   transition: all 0.2s;
 }
 
-.btn-cancel:hover { color: #ccc; border-color: rgba(255,255,255,0.3); }
+.btn-cancel:hover { color: #1e293b; border-color: #94a3b8; }
 
 .btn-submit {
   padding: 10px 32px;
   border: none;
   border-radius: 8px;
-  background: linear-gradient(135deg, #f5af19, #f12711);
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
   color: #fff;
   cursor: pointer;
   font-size: 14px;
@@ -391,10 +393,10 @@ function logout() {
 .error-msg {
   margin-top: 16px;
   padding: 12px 16px;
-  background: rgba(241,39,17,0.1);
-  border: 1px solid rgba(241,39,17,0.3);
+  background: rgba(220,38,38,0.08);
+  border: 1px solid rgba(220,38,38,0.2);
   border-radius: 8px;
-  color: #f12711;
+  color: #dc2626;
   font-size: 13px;
   text-align: center;
 }

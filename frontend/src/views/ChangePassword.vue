@@ -122,11 +122,14 @@ function goBack() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+  background: linear-gradient(135deg, #eff6ff, #dbeafe, #e0e7ff);
 }
 .cp-card {
   width: 420px;
   padding: 40px;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.06);
 }
 .logo {
   text-align: center;
@@ -135,14 +138,14 @@ function goBack() {
 .logo h1 {
   font-size: 36px;
   font-weight: 700;
-  background: linear-gradient(135deg, #f5af19, #f12711);
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
   letter-spacing: 4px;
 }
 .logo p {
-  color: #888;
+  color: #64748b;
   margin-top: 8px;
   font-size: 14px;
   letter-spacing: 2px;
@@ -152,24 +155,24 @@ function goBack() {
 }
 .form-group label {
   display: block;
-  color: #aaa;
+  color: #475569;
   font-size: 13px;
   margin-bottom: 8px;
 }
 .form-group input {
   width: 100%;
   padding: 12px 16px;
-  border: 1px solid rgba(255,255,255,0.1);
+  border: 1px solid #e2e8f0;
   border-radius: 8px;
-  background: rgba(255,255,255,0.05);
-  color: #e0e0e0;
+  background: #f8fafc;
+  color: #1e293b;
   font-size: 14px;
   outline: none;
   transition: border-color 0.3s;
   box-sizing: border-box;
 }
 .form-group input:focus {
-  border-color: #f5af19;
+  border-color: #2563eb;
 }
 .form-group input:disabled {
   opacity: 0.5;
@@ -184,35 +187,35 @@ function goBack() {
 }
 .code-btn {
   padding: 12px 16px;
-  border: 1px solid #f5af19;
+  border: 1px solid #2563eb;
   border-radius: 8px;
   background: transparent;
-  color: #f5af19;
+  color: #2563eb;
   font-size: 13px;
   cursor: pointer;
   white-space: nowrap;
   transition: all 0.3s;
 }
 .code-btn:hover:not(:disabled) {
-  background: rgba(245,175,25,0.1);
+  background: rgba(37,99,235,0.08);
 }
 .code-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
 .hint {
-  color: #666;
+  color: #94a3b8;
   font-size: 12px;
   margin-top: 6px;
 }
 .error-msg {
-  color: #f12711;
+  color: #dc2626;
   font-size: 13px;
   margin-bottom: 12px;
   text-align: center;
 }
 .success-msg {
-  color: #4caf50;
+  color: #16a34a;
   font-size: 13px;
   margin-bottom: 12px;
   text-align: center;
@@ -222,7 +225,7 @@ function goBack() {
   padding: 14px;
   border: none;
   border-radius: 8px;
-  background: linear-gradient(135deg, #f5af19, #f12711);
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
   color: #fff;
   font-size: 16px;
   font-weight: 600;
@@ -236,9 +239,9 @@ function goBack() {
   margin-top: 20px;
 }
 .back-link a {
-  color: #888;
+  color: #64748b;
   font-size: 13px;
   text-decoration: none;
 }
-.back-link a:hover { color: #f5af19; }
+.back-link a:hover { color: #2563eb; }
 </style>
