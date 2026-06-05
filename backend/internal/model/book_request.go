@@ -7,5 +7,5 @@ type CreateBookRequest struct {
 	ChapterWordCount int    `json:"chapter_word_count" binding:"required,min=500,max=50000"`
 	TargetChapters   int    `json:"target_chapters" binding:"required,min=1,max=10000"`
 	Description      string `json:"description" binding:"max=5000"`
-	LLMConfigID      uint   `json:"llm_config_id"`
+	LLMModelID       uint   `json:"llm_model_id"`
 }

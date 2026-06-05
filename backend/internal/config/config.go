@@ -20,6 +20,7 @@ type Config struct {
 	JWT   JWTConfig   `yaml:"jwt"`
 	Admin AdminConfig `yaml:"admin"`
 	SMTP  SMTPConfig  `yaml:"smtp"`
+	LLM   LLMConfig   `yaml:"llm"`
 }
 
 type AppConfig struct {
@@ -55,6 +56,15 @@ type SMTPConfig struct {
 	From     string `yaml:"from"`
 }
 
+type LLMConfig struct {
+	DefaultTimeoutSeconds int `yaml:"default_timeout_seconds"`
+	PlannerTimeoutSeconds int `yaml:"planner_timeout_seconds"`
+	WriterTimeoutSeconds  int `yaml:"writer_timeout_seconds"`
+	SettlerTimeoutSeconds int `yaml:"settler_timeout_seconds"`
+	AuditorTimeoutSeconds int `yaml:"auditor_timeout_seconds"`
+	ReviserTimeoutSeconds int `yaml:"reviser_timeout_seconds"`
+}
+
 func Load(path string) *Config {
 	cfg := &Config{
 		App: AppConfig{
@@ -80,6 +90,14 @@ func Load(path string) *Config {
 		},
 		SMTP: SMTPConfig{
 			Port: 587,
+		},
+		LLM: LLMConfig{
+			DefaultTimeoutSeconds: 120,
+			PlannerTimeoutSeconds: 120,
+			WriterTimeoutSeconds:  300,
+			SettlerTimeoutSeconds: 180,
+			AuditorTimeoutSeconds: 180,
+			ReviserTimeoutSeconds: 180,
 		},
 	}
 

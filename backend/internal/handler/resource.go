@@ -11,16 +11,18 @@ import (
 )
 
 type ResourceHandler struct {
-	genreRepo    repository.GenreRepository
-	platformRepo repository.PlatformRepository
-	llmRepo      repository.LLMConfigRepository
+	genreRepo     repository.GenreRepository
+	platformRepo  repository.PlatformRepository
+	llmModelRepo  repository.LLMModelRepository
+	llmConfigRepo repository.LLMConfigRepository
 }
 
-func NewResourceHandler(genreRepo repository.GenreRepository, platformRepo repository.PlatformRepository, llmRepo repository.LLMConfigRepository) *ResourceHandler {
+func NewResourceHandler(genreRepo repository.GenreRepository, platformRepo repository.PlatformRepository, llmModelRepo repository.LLMModelRepository, llmConfigRepo repository.LLMConfigRepository) *ResourceHandler {
 	return &ResourceHandler{
-		genreRepo:    genreRepo,
-		platformRepo: platformRepo,
-		llmRepo:      llmRepo,
+		genreRepo:     genreRepo,
+		platformRepo:  platformRepo,
+		llmModelRepo:  llmModelRepo,
+		llmConfigRepo: llmConfigRepo,
 	}
 }
 
@@ -44,7 +46,7 @@ func (h *ResourceHandler) ListPlatforms(c *gin.Context) {
 }
 
 func (h *ResourceHandler) ListLLMConfigs(c *gin.Context) {
-	configs, err := h.llmRepo.List()
+	configs, err := h.llmConfigRepo.ListAllWithModels()
 	if err != nil {
 		ErrLLMConfigFailed.JSON(c)
 		return

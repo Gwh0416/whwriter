@@ -28,3 +28,11 @@ smtp:
   user: "2482151827@qq.com"            # 你的邮箱地址
   password: "focjzcpwzzozebad"        # 邮箱授权码（非登录密码）
   from: "2482151827@qq.com"            # 发件人地址，通常与 user 相同
+
+llm:
+  default_timeout_seconds: 300
+  planner_timeout_seconds: 300
+  writer_timeout_seconds: 600
+  settler_timeout_seconds: 300
+  auditor_timeout_seconds: 300
+  reviser_timeout_seconds: 300

@@ -91,11 +91,13 @@
           <h3>AI 模型配置</h3>
           <div class="form-group">
             <label>写作模型</label>
-            <select v-model="form.llm_config_id">
-              <option :value="0">暂不选择（后续配置）</option>
-              <option v-for="c in llmConfigs" :key="c.id" :value="c.id">
-                {{ c.provider }} / {{ c.model || c.service }}
-              </option>
+            <select v-model="form.llm_model_id">
+              <option :value="0">使用默认模型</option>
+              <optgroup v-for="cfg in llmConfigs" :key="cfg.id" :label="cfg.label">
+                <option v-for="m in cfg.models" :key="m.id" :value="m.id" :disabled="!m.is_enabled">
+                  {{ m.model_name }}{{ m.is_default ? ' (默认)' : '' }}{{ m.is_enabled ? '' : ' (已禁用)' }}
+                </option>
+              </optgroup>
             </select>
             <span class="hint" v-if="llmConfigs.length === 0">
               暂无可用模型，请联系管理员配置
@@ -106,7 +108,7 @@
         <div class="form-actions">
           <button type="button" class="btn-cancel" @click="$router.push('/write')">取消</button>
           <button type="submit" class="btn-submit" :disabled="submitting">
-            {{ submitting ? '创建中...' : '创建小说' }}
+            {{ submitting ? '创建并初始化中...' : '创建小说' }}
           </button>
         </div>
 
@@ -135,7 +137,7 @@ const form = reactive({
   chapter_word_count: 3000,
   target_chapters: 200,
   description: '',
-  llm_config_id: 0,
+  llm_model_id: 0,
 })
 
 const token = localStorage.getItem('token')
@@ -164,7 +166,7 @@ async function submit() {
   submitting.value = true
 
   const body = { ...form }
-  if (body.llm_config_id === 0) delete body.llm_config_id
+  if (body.llm_model_id === 0) delete body.llm_model_id
 
   try {
     const res = await fetch('/api/v1/books', {
