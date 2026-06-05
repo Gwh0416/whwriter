@@ -1,0 +1,45 @@
+backend/internal/container/container.go
+  dcdc0fe58aeaf8d4 6-7,20-27,32-33,54-55,57,62-63
+backend/internal/model/config.go
+  dcdc0fe58aeaf8d4 7-8,13-14,21,23-26,30-58
+backend/internal/handler/resource.go
+  dcdc0fe58aeaf8d4 14-17,20,22-25,49
+backend/config.yaml
+  dcdc0fe58aeaf8d4 31-38
+backend/internal/config/config.go
+  dcdc0fe58aeaf8d4 23,59-67,94-100
+frontend/src/views/CreateBook.vue
+  dcdc0fe58aeaf8d4 94-100,111,140,169
+frontend/src/views/Admin.vue
+  dcdc0fe58aeaf8d4 13,189-263,267-268,271,369-394,438-453,486,537,658-764,1182-1378
+backend/internal/repository/mysql/llm_config.go
+  dcdc0fe58aeaf8d4 18,23-143
+backend/internal/model/book_request.go
+  dcdc0fe58aeaf8d4 10
+backend/internal/handler/admin.go
+  dcdc0fe58aeaf8d4 4-6,9,20-25,28-29,67-69,236-507
+backend/internal/llm/client.go
+  dcdc0fe58aeaf8d4 1-152
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "a3e78d463011a52420d5740e148bea9aaa94db57",
+  "prompts": {
+    "dcdc0fe58aeaf8d4": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a154808afa96ab5e0fd8979",
+        "model": "gpt-5.4__dev"
+      },
+      "human_author": "gaowenhao.0416 <gaowenhao.0416@bytedance.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 2843,
+      "overriden_lines": 0
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
