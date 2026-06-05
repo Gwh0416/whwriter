@@ -36,9 +36,9 @@ func SetupRouter(c *Container) *gin.Engine {
 	})
 
 	authHandler := handler.NewAuthHandler(c.AuthSvc)
-	resourceHandler := handler.NewResourceHandler(c.GenreRepo, c.PlatformRepo, c.LLMConfigRepo)
-	bookHandler := handler.NewBookHandler(c.BookRepo)
-	adminHandler := handler.NewAdminHandler(c.UserRepo, c.GenreRepo, c.PlatformRepo, c.DB)
+	resourceHandler := handler.NewResourceHandler(c.GenreRepo, c.PlatformRepo, c.LLMModelRepo, c.LLMConfigRepo)
+	bookHandler := handler.NewBookHandler(c.BookRepo, c.TruthFileRepo, c.Pipeline)
+	adminHandler := handler.NewAdminHandler(c.UserRepo, c.GenreRepo, c.PlatformRepo, c.LLMConfigRepo, c.LLMModelRepo, c.DB)
 
 	api := r.Group("/api/v1")
 	{
@@ -76,6 +76,13 @@ func SetupRouter(c *Container) *gin.Engine {
 
 			protected.POST("/books", bookHandler.Create)
 			protected.GET("/books", bookHandler.List)
+			protected.GET("/books/:id", bookHandler.Get)
+			protected.DELETE("/books/:id", bookHandler.Delete)
+			protected.POST("/books/:id/write", bookHandler.WriteChapter)
+			protected.GET("/books/:id/chapters/:chapter", bookHandler.GetChapter)
+			protected.DELETE("/books/:id/chapters/:chapter", bookHandler.DeleteChapter)
+			protected.GET("/books/:id/truth-files", bookHandler.GetTruthFiles)
+			protected.GET("/books/:id/chapters/:chapter/artifacts", bookHandler.GetChapterArtifacts)
 
 			admin := protected.Group("/admin")
 			admin.Use(middleware.AdminOnly())
@@ -96,6 +103,15 @@ func SetupRouter(c *Container) *gin.Engine {
 				admin.POST("/platforms", adminHandler.CreatePlatform)
 				admin.PUT("/platforms/:id", adminHandler.UpdatePlatform)
 				admin.DELETE("/platforms/:id", adminHandler.DeletePlatform)
+
+				admin.GET("/llm-configs", adminHandler.ListLLMConfigs)
+				admin.GET("/llm-configs/token-usage", adminHandler.GetTokenUsageStats)
+				admin.POST("/llm-configs/test-connection", adminHandler.TestLLMConnection)
+				admin.POST("/llm-configs", adminHandler.CreateLLMConfig)
+				admin.PUT("/llm-configs/:id", adminHandler.UpdateLLMConfig)
+				admin.DELETE("/llm-configs/:id", adminHandler.DeleteLLMConfig)
+				admin.POST("/llm-configs/:id/models", adminHandler.SaveLLMModels)
+				admin.POST("/llm-models/:id/default", adminHandler.SetDefaultModel)
 			}
 		}
 	}

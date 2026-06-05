@@ -5,10 +5,12 @@ import "time"
 type BookStatus string
 
 const (
-	BookStatusOutlining BookStatus = "outlining"
-	BookStatusActive    BookStatus = "active"
-	BookStatusPaused    BookStatus = "paused"
-	BookStatusCompleted BookStatus = "completed"
+	BookStatusInitializing BookStatus = "initializing"
+	BookStatusOutlining    BookStatus = "outlining"
+	BookStatusActive       BookStatus = "active"
+	BookStatusWriting      BookStatus = "writing"
+	BookStatusPaused       BookStatus = "paused"
+	BookStatusCompleted    BookStatus = "completed"
 )
 
 type AutomationMode string
@@ -24,7 +26,9 @@ type Book struct {
 	UserID           uint           `json:"user_id" gorm:"index;not null"`
 	GenreID          uint           `json:"genre_id" gorm:"not null"`
 	PlatformID       uint           `json:"platform_id" gorm:"not null"`
+	LLMModelID       uint           `json:"llm_model_id" gorm:"default:0"`
 	Title            string         `json:"title" gorm:"size:255;not null"`
+	Description      string         `json:"description" gorm:"type:text"`
 	Language         string         `json:"language" gorm:"size:8;default:zh"`
 	Status           BookStatus     `json:"status" gorm:"size:16;not null;default:outlining"`
 	ChapterWordCount int            `json:"chapter_word_count" gorm:"default:3000"`
@@ -67,13 +71,41 @@ const (
 )
 
 type Character struct {
-	ID        uint              `json:"id" gorm:"primaryKey"`
-	BookID    uint              `json:"book_id" gorm:"index;not null"`
-	Name      string            `json:"name" gorm:"size:128;not null"`
-	RoleType  CharacterRoleType `json:"role_type" gorm:"size:16;not null"`
-	Profile   string            `json:"profile" gorm:"type:longtext"`
-	CreatedAt time.Time         `json:"created_at"`
-	UpdatedAt time.Time         `json:"updated_at"`
+	ID                  uint              `json:"id" gorm:"primaryKey"`
+	BookID              uint              `json:"book_id" gorm:"index;not null"`
+	Name                string            `json:"name" gorm:"size:128;not null"`
+	RoleType            CharacterRoleType `json:"role_type" gorm:"size:16;not null"`
+	CoreTags            string            `json:"core_tags" gorm:"type:longtext"`
+	ContrastDetails     string            `json:"contrast_details" gorm:"type:longtext"`
+	Backstory           string            `json:"backstory" gorm:"type:longtext"`
+	CharacterArc        string            `json:"character_arc" gorm:"type:longtext"`
+	CurrentStatus       string            `json:"current_status" gorm:"type:longtext"`
+	RelationshipNetwork string            `json:"relationship_network" gorm:"type:longtext"`
+	InnerDrive          string            `json:"inner_drive" gorm:"type:longtext"`
+	GrowthArc           string            `json:"growth_arc" gorm:"type:longtext"`
+	Profile             string            `json:"profile" gorm:"type:longtext"`
+	IsPlaceholder       bool              `json:"is_placeholder" gorm:"default:false"`
+	SourceChapter       uint              `json:"source_chapter" gorm:"index"`
+	LastSeenChapter     uint              `json:"last_seen_chapter" gorm:"index"`
+	CreatedAt           time.Time         `json:"created_at"`
+	UpdatedAt           time.Time         `json:"updated_at"`
+}
+
+type BookState struct {
+	ID                uint      `json:"id" gorm:"primaryKey"`
+	BookID            uint      `json:"book_id" gorm:"uniqueIndex;not null"`
+	CurrentChapter    uint      `json:"current_chapter"`
+	ProtagonistName   string    `json:"protagonist_name" gorm:"size:128"`
+	SituationSummary  string    `json:"situation_summary" gorm:"type:longtext"`
+	CurrentLocation   string    `json:"current_location" gorm:"type:text"`
+	ProtagonistState  string    `json:"protagonist_state" gorm:"type:text"`
+	CurrentGoal       string    `json:"current_goal" gorm:"type:text"`
+	CurrentConstraint string    `json:"current_constraint" gorm:"type:text"`
+	CurrentAlliances  string    `json:"current_alliances" gorm:"type:text"`
+	CurrentConflict   string    `json:"current_conflict" gorm:"type:text"`
+	SourceChapter     uint      `json:"source_chapter"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 type HookType string
@@ -131,6 +163,7 @@ type Fact struct {
 	Subject           string    `json:"subject" gorm:"index:idx_book_subject;size:128;not null"`
 	Predicate         string    `json:"predicate" gorm:"size:128;not null"`
 	Object            string    `json:"object" gorm:"type:text"`
+	Category          string    `json:"category" gorm:"size:32;index"`
 	ValidFromChapter  uint      `json:"valid_from_chapter" gorm:"index;not null"`
 	ValidUntilChapter *uint     `json:"valid_until_chapter"`
 	SourceChapter     uint      `json:"source_chapter"`
@@ -177,6 +210,9 @@ type ChapterSnapshot struct {
 	BookID               uint      `json:"book_id" gorm:"uniqueIndex:idx_book_snapshot;not null"`
 	ChapterNumber        uint      `json:"chapter_number" gorm:"uniqueIndex:idx_book_snapshot;not null"`
 	CurrentStateJSON     string    `json:"current_state_json" gorm:"type:json"`
+	BookStateJSON        string    `json:"book_state_json" gorm:"type:json"`
+	CharactersJSON       string    `json:"characters_json" gorm:"type:json"`
+	FactsJSON            string    `json:"facts_json" gorm:"type:json"`
 	HooksJSON            string    `json:"hooks_json" gorm:"type:json"`
 	ChapterSummariesJSON string    `json:"chapter_summaries_json" gorm:"type:json"`
 	ManifestJSON         string    `json:"manifest_json" gorm:"type:json"`
@@ -191,6 +227,7 @@ const (
 	ArtifactContext   ArtifactType = "context"
 	ArtifactRuleStack ArtifactType = "rule_stack"
 	ArtifactTrace     ArtifactType = "trace"
+	ArtifactEvidence  ArtifactType = "evidence"
 )
 
 type RuntimeArtifact struct {

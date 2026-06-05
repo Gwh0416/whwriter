@@ -42,10 +42,64 @@ type PlatformRepository interface {
 }
 
 type LLMConfigRepository interface {
-	List() ([]model.LLMConfig, error)
+	ListAll() ([]model.LLMConfig, error)
+	ListAllWithModels() ([]model.LLMConfig, error)
+	FindByID(id uint) (*model.LLMConfig, error)
+	Create(config *model.LLMConfig) error
+	Update(config *model.LLMConfig) error
+	Delete(id uint) error
+}
+
+type LLMModelRepository interface {
+	ListByConfig(configID uint) ([]model.LLMModel, error)
+	ListEnabled() ([]model.LLMModel, error)
+	FindByID(id uint) (*model.LLMModel, error)
+	Create(model *model.LLMModel) error
+	Update(model *model.LLMModel) error
+	Delete(id uint) error
+	DeleteByConfig(configID uint) error
+	SetDefault(modelID uint) error
+	GetTokenUsage(modelID uint) (int64, error)
+	GetTotalTokenUsage() (int64, error)
+	GetTokenUsageByModel() (map[uint]int64, error)
+}
+
+type TokenUsageRepository interface {
+	Record(usage *model.TokenUsage) error
 }
 
 type BookRepository interface {
 	Create(book *model.Book) error
 	ListByUser(userID uint) ([]model.Book, error)
+}
+
+type TruthFileRepository interface {
+	GetCharacters(bookID uint) ([]model.Character, error)
+	SaveCharacter(c *model.Character) error
+	GetFacts(bookID uint) ([]model.Fact, error)
+	SaveFact(f *model.Fact) error
+	GetHooks(bookID uint) ([]model.Hook, error)
+	SaveHook(h *model.Hook) error
+	GetChapterSummaries(bookID uint) ([]model.ChapterSummary, error)
+	SaveChapterSummary(s *model.ChapterSummary) error
+	GetFoundation(bookID uint, fileType model.FoundationFileType) (*model.BookFoundation, error)
+	ListFoundations(bookID uint) ([]model.BookFoundation, error)
+	SaveFoundation(f *model.BookFoundation) error
+	GetChapter(bookID uint, chapterNumber uint) (*model.Chapter, error)
+	SaveChapter(ch *model.Chapter) error
+	ListChapters(bookID uint) ([]model.Chapter, error)
+	GetNextChapterNumber(bookID uint) (uint, error)
+	GetBook(bookID uint) (*model.Book, error)
+	GetBookState(bookID uint) (*model.BookState, error)
+	SaveBookState(s *model.BookState) error
+	UpdateBookStatus(bookID uint, status model.BookStatus) error
+	TransitionBookStatus(bookID uint, from []model.BookStatus, to model.BookStatus) (bool, error)
+	SaveChapterSnapshot(s *model.ChapterSnapshot) error
+	GetChapterSnapshots(bookID uint) ([]model.ChapterSnapshot, error)
+	SaveRuntimeArtifact(a *model.RuntimeArtifact) error
+	GetRuntimeArtifacts(bookID uint, chapterNumber uint) ([]model.RuntimeArtifact, error)
+	GetAgentModelRoute(bookID uint, agentName string) (*model.AgentModelRoute, error)
+	SaveAgentModelRoute(r *model.AgentModelRoute) error
+	DeleteBookCascade(bookID uint) error
+	DeleteLatestChapterCascade(bookID uint, chapterNumber uint) error
 }

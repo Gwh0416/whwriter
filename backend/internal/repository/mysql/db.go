@@ -38,6 +38,7 @@ func NewDB(dsn string) (*gorm.DB, error) {
 		&model.Book{},
 		&model.Chapter{},
 		&model.Character{},
+		&model.BookState{},
 		&model.Hook{},
 		&model.Fact{},
 		&model.ChapterSummary{},
@@ -45,7 +46,9 @@ func NewDB(dsn string) (*gorm.DB, error) {
 		&model.ChapterSnapshot{},
 		&model.RuntimeArtifact{},
 		&model.LLMConfig{},
+		&model.LLMModel{},
 		&model.AgentModelRoute{},
+		&model.TokenUsage{},
 	); err != nil {
 		return nil, fmt.Errorf("auto migrate: %w", err)
 	}

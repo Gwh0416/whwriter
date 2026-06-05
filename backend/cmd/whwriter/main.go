@@ -28,7 +28,8 @@ func main() {
 		Addr:         cfg.Addr(),
 		Handler:      c.Engine,
 		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 60 * time.Second,
+		// SSE 写作链路可能持续数分钟，不能使用统一写超时截断流式响应。
+		WriteTimeout: 0,
 		IdleTimeout:  120 * time.Second,
 	}
 

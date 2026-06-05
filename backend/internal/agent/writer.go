@@ -14,11 +14,11 @@ func NewWriterAgent() *WriterAgent {
 func (a *WriterAgent) Name() string { return "writer" }
 
 type WriterInput struct {
-	Platform       string
-	GenreName      string
+	Platform         string
+	GenreName        string
 	ChapterWordCount int
-	ChapterNumber  int
-	IsGoverned     bool
+	ChapterNumber    int
+	IsGoverned       bool
 }
 
 func (a *WriterAgent) BuildSystemPrompt(in WriterInput) string {
@@ -38,7 +38,7 @@ func (a *WriterAgent) BuildSystemPrompt(in WriterInput) string {
 	b.WriteString(writerImmersionPillars)
 
 	if in.ChapterNumber <= 3 {
-		b.WriteString(fmt.Sprintf(writerGoldenOpening, in.ChapterNumber))
+		b.WriteString(fmt.Sprintf(writerGoldenOpening, in.ChapterNumber, in.ChapterNumber))
 	}
 
 	b.WriteString(writerOutputFormat)
@@ -215,6 +215,12 @@ const writerGoldenOpening = `## 黄金三章写作纪律 — 第 %d 章
 
 const writerOutputFormat = `## 输出格式（严格遵守）
 
+- 你必须严格输出下面这些 section，section 名必须原样出现。
+- 禁止把最终答案写成普通 Markdown 小说正文，禁止以 ` + "`# 第一章：...`" + `、` + "`## 小标题`" + `、` + "`---`" + ` 分隔说明的形式替代 section 协议。
+- 如果你漏掉 ` + "`=== CHAPTER_TITLE ===`" + ` 或 ` + "`=== CHAPTER_CONTENT ===`" + `，系统会直接判定本章失败。
+- ` + "`CHAPTER_TITLE`" + ` 段只能输出标题文本本身，禁止再写 ` + "`第X章`" + `、禁止再加 Markdown 标题符号 ` + "`#`" + `。
+- ` + "`CHAPTER_CONTENT`" + ` 段直接输出正文，不要再把标题重复写一遍，不要再额外包一层 ` + "`# 第一章`" + ` 或 ` + "`## 章节名`" + `。
+
 === PRE_WRITE_CHECK ===
 （必须输出Markdown表格，全部检查项对齐 chapter_memo 七段，而不是卷纲）
 | 检查项 | 本章记录 | 备注 |
@@ -232,10 +238,10 @@ const writerOutputFormat = `## 输出格式（严格遵守）
 | 风险扫描 | OOC/信息越界/设定冲突/节奏/词汇疲劳 | |
 
 === CHAPTER_TITLE ===
-(章节标题，不含"第X章"。标题必须与已有章节标题不同，不要重复使用相同或相似的标题；若提供了 recent title history 或高频标题词，必须主动避开重复词根和高频意象)
+(章节标题，不含"第X章"。只输出标题文本一行。标题必须与已有章节标题不同，不要重复使用相同或相似的标题；若提供了 recent title history 或高频标题词，必须主动避开重复词根和高频意象)
 
 === CHAPTER_CONTENT ===
-(正文内容)
+(正文内容。这里直接开始小说正文，禁止再写 ` + "`# 第一章：标题`" + ` 这种自由格式)
 
 === POST_SETTLEMENT ===
 （如有伏笔变动，必须输出）

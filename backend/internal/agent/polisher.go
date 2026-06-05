@@ -6,7 +6,7 @@ func NewPolisherAgent() *PolisherAgent {
 	return &PolisherAgent{}
 }
 
-func (a *PolisherAgent) Name() string { return "normalizer" }
+func (a *PolisherAgent) Name() string { return "polisher" }
 
 func (a *PolisherAgent) SystemPrompt() string {
 	return polisherPrompt
