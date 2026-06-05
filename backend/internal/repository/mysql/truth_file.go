@@ -357,13 +357,17 @@ func (r *truthFileRepo) DeleteLatestChapterCascade(bookID uint, chapterNumber ui
 
 func restoreTruthStateFromSnapshot(tx *gorm.DB, bookID uint, deletedChapter uint, snapshot model.ChapterSnapshot) error {
 	var (
-		characters []model.Character
-		facts      []model.Fact
-		hooks      []model.Hook
-		summaries  []model.ChapterSummary
-		bookState  *model.BookState
+		foundations []model.BookFoundation
+		characters  []model.Character
+		facts       []model.Fact
+		hooks       []model.Hook
+		summaries   []model.ChapterSummary
+		bookState   *model.BookState
 	)
 
+	if err := unmarshalSnapshotJSON(snapshot.FoundationsJSON, &foundations); err != nil {
+		return fmt.Errorf("parse snapshot foundations: %w", err)
+	}
 	if err := unmarshalSnapshotJSON(snapshot.CharactersJSON, &characters); err != nil {
 		return fmt.Errorf("parse snapshot characters: %w", err)
 	}
@@ -446,6 +450,9 @@ func restoreTruthStateFromSnapshot(tx *gorm.DB, bookID uint, deletedChapter uint
 		if err := tx.Create(bookState).Error; err != nil {
 			return err
 		}
+	}
+	if err := restoreFoundationsFromSnapshot(tx, bookID, snapshot.ChapterNumber, foundations, bookState); err != nil {
+		return err
 	}
 
 	return nil
@@ -575,6 +582,79 @@ func buildBookStateSummary(state *model.BookState) string {
 		return strings.TrimSpace(state.SituationSummary)
 	}
 	return clipRunes(strings.Join(filtered, "；"), 500)
+}
+
+func restoreFoundationsFromSnapshot(tx *gorm.DB, bookID uint, chapterNumber uint, foundations []model.BookFoundation, bookState *model.BookState) error {
+	if len(foundations) > 0 {
+		if err := tx.Where("book_id = ?", bookID).Delete(&model.BookFoundation{}).Error; err != nil {
+			return err
+		}
+		for i := range foundations {
+			foundations[i].ID = 0
+			foundations[i].BookID = bookID
+			if err := tx.Create(&foundations[i]).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	dynamicTypes := []model.FoundationFileType{
+		model.FoundationCurrentFocus,
+		model.FoundationAuditDrift,
+	}
+	if err := tx.Where("book_id = ? AND file_type IN ?", bookID, dynamicTypes).Delete(&model.BookFoundation{}).Error; err != nil {
+		return err
+	}
+	if bookState != nil {
+		if content := buildCurrentFocusFoundation(chapterNumber, bookState); strings.TrimSpace(content) != "" {
+			if err := tx.Create(&model.BookFoundation{
+				BookID:   bookID,
+				FileType: model.FoundationCurrentFocus,
+				Content:  content,
+			}).Error; err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func buildCurrentFocusFoundation(chapterNumber uint, state *model.BookState) string {
+	if state == nil {
+		return ""
+	}
+
+	patch := map[string]string{
+		"currentLocation":   strings.TrimSpace(state.CurrentLocation),
+		"protagonistState":  strings.TrimSpace(state.ProtagonistState),
+		"currentGoal":       strings.TrimSpace(state.CurrentGoal),
+		"currentConstraint": strings.TrimSpace(state.CurrentConstraint),
+		"currentAlliances":  strings.TrimSpace(state.CurrentAlliances),
+		"currentConflict":   strings.TrimSpace(state.CurrentConflict),
+	}
+	keys := []string{
+		"currentLocation",
+		"protagonistState",
+		"currentGoal",
+		"currentConstraint",
+		"currentAlliances",
+		"currentConflict",
+	}
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("## 第 %d 章后当前焦点\n", chapterNumber))
+	for _, key := range keys {
+		value := strings.TrimSpace(patch[key])
+		if value == "" {
+			continue
+		}
+		b.WriteString(fmt.Sprintf("- %s：%s\n", key, value))
+	}
+	if b.Len() == 0 {
+		return ""
+	}
+	return strings.TrimSpace(b.String())
 }
 
 func clipRunes(raw string, max int) string {

@@ -118,6 +118,15 @@ type settlerDelta struct {
 	Notes             []string               `json:"notes"`
 }
 
+var allowedCurrentStatePatchKeys = map[string]struct{}{
+	"currentLocation":   {},
+	"protagonistState":  {},
+	"currentGoal":       {},
+	"currentConstraint": {},
+	"currentAlliances":  {},
+	"currentConflict":   {},
+}
+
 func emitProgress(w ProgressWriter, stage, msg string) {
 	if w == nil {
 		return
@@ -485,6 +494,15 @@ func (p *Pipeline) WriteChapter(ctx context.Context, in WriteChapterInput) (*Wri
 		writerModelID,
 		extractionOptions{SaveHooks: settleErr != nil, SaveSummary: settleErr != nil},
 	)
+	if settleErr != nil {
+		if err := p.applyFallbackBookState(in.BookID, chapterNumber, sections["UPDATED_STATE"]); err != nil {
+			p.saveDebugTrace(in.BookID, chapterNumber, "state_fallback_error", map[string]any{
+				"error": err.Error(),
+			})
+		} else {
+			p.saveDebugTrace(in.BookID, chapterNumber, "state_fallback_done", nil)
+		}
+	}
 
 	if err := emit("snapshot", "正在保存章节快照和运行时产物..."); err != nil {
 		return nil, err
@@ -747,6 +765,9 @@ func (p *Pipeline) settleTruthFiles(ctx context.Context, book *model.Book, chapt
 	if err := json.Unmarshal([]byte(jsonStr), &delta); err != nil {
 		return sections, settlerDelta{}, raw, fmt.Errorf("parse settler delta: %w", err)
 	}
+	if err := p.validateSettlerDelta(book.ID, chapterNumber, title, content, &delta); err != nil {
+		return sections, delta, raw, fmt.Errorf("validate settler delta: %w", err)
+	}
 
 	if err := p.applySettlerDelta(book.ID, chapterNumber, title, sections["POST_SETTLEMENT"], delta); err != nil {
 		return sections, delta, raw, err
@@ -761,8 +782,361 @@ func (p *Pipeline) settleTruthFiles(ctx context.Context, book *model.Book, chapt
 	return sections, delta, raw, nil
 }
 
+func (p *Pipeline) validateSettlerDelta(bookID uint, chapterNumber uint, title, content string, delta *settlerDelta) error {
+	if delta == nil {
+		return fmt.Errorf("delta is nil")
+	}
+	if delta.Chapter > 0 && delta.Chapter != chapterNumber {
+		return fmt.Errorf("chapter mismatch: got %d want %d", delta.Chapter, chapterNumber)
+	}
+	if delta.ChapterSummary.Chapter > 0 && delta.ChapterSummary.Chapter != chapterNumber {
+		return fmt.Errorf("chapter summary mismatch: got %d want %d", delta.ChapterSummary.Chapter, chapterNumber)
+	}
+
+	patch, err := p.normalizeSettlerStatePatch(bookID, delta.CurrentStatePatch)
+	if err != nil {
+		return err
+	}
+	delta.CurrentStatePatch = patch
+
+	if err := validateSettlerHookOps(delta.HookOps); err != nil {
+		return err
+	}
+	if err := validateSettlerHookCandidates(delta.NewHookCandidates); err != nil {
+		return err
+	}
+	if err := validateSettlerNotes(delta.Notes); err != nil {
+		return err
+	}
+	if err := validateSettlerChapterSummary(title, delta.ChapterSummary); err != nil {
+		return err
+	}
+	if err := validateSettlerGrounding(content, delta); err != nil {
+		return err
+	}
+	if !settlerDeltaHasSignal(*delta) {
+		return fmt.Errorf("delta has no effective updates")
+	}
+	return nil
+}
+
+func (p *Pipeline) normalizeSettlerStatePatch(bookID uint, rawPatch map[string]string) (map[string]string, error) {
+	if len(rawPatch) == 0 {
+		return map[string]string{}, nil
+	}
+
+	var current *model.BookState
+	state, err := p.truth.GetBookState(bookID)
+	if err != nil {
+		return nil, fmt.Errorf("load current state for validation: %w", err)
+	}
+	current = state
+
+	normalized := make(map[string]string, len(rawPatch))
+	for key, value := range rawPatch {
+		key = strings.TrimSpace(key)
+		if _, ok := allowedCurrentStatePatchKeys[key]; !ok {
+			return nil, fmt.Errorf("unsupported currentStatePatch key: %s", key)
+		}
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if isMetaPlaceholder(value) {
+			return nil, fmt.Errorf("state patch %s contains placeholder-like value: %s", key, value)
+		}
+		if current != nil && sameStateValue(current, key, value) {
+			continue
+		}
+		normalized[key] = value
+	}
+	return normalized, nil
+}
+
+func validateSettlerHookOps(ops settlerHookOps) error {
+	seenUpsert := make(map[string]struct{}, len(ops.Upsert))
+	for _, upsert := range ops.Upsert {
+		upsert.HookID = strings.TrimSpace(upsert.HookID)
+		if upsert.HookID == "" {
+			return fmt.Errorf("hook upsert missing hookId")
+		}
+		if _, ok := seenUpsert[upsert.HookID]; ok {
+			return fmt.Errorf("duplicate hook upsert: %s", upsert.HookID)
+		}
+		seenUpsert[upsert.HookID] = struct{}{}
+		if !isRecognizedHookType(upsert.Type) {
+			return fmt.Errorf("hook %s has invalid type: %s", upsert.HookID, upsert.Type)
+		}
+		if !isRecognizedHookStatus(upsert.Status) {
+			return fmt.Errorf("hook %s has invalid status: %s", upsert.HookID, upsert.Status)
+		}
+		if strings.TrimSpace(upsert.PayoffTiming) != "" && !isRecognizedPayoffTiming(upsert.PayoffTiming) {
+			return fmt.Errorf("hook %s has invalid payoff timing: %s", upsert.HookID, upsert.PayoffTiming)
+		}
+		if strings.TrimSpace(upsert.Notes) != "" && isMetaPlaceholder(strings.TrimSpace(upsert.Notes)) {
+			return fmt.Errorf("hook %s notes are not grounded", upsert.HookID)
+		}
+	}
+
+	resolveSet := make(map[string]struct{}, len(ops.Resolve))
+	for _, hookID := range ops.Resolve {
+		hookID = strings.TrimSpace(hookID)
+		if hookID == "" {
+			return fmt.Errorf("resolve hook contains empty hookId")
+		}
+		resolveSet[hookID] = struct{}{}
+	}
+	for _, hookID := range ops.Defer {
+		hookID = strings.TrimSpace(hookID)
+		if hookID == "" {
+			return fmt.Errorf("defer hook contains empty hookId")
+		}
+		if _, ok := resolveSet[hookID]; ok {
+			return fmt.Errorf("hook %s cannot be both resolved and deferred", hookID)
+		}
+	}
+	return nil
+}
+
+func validateSettlerHookCandidates(candidates []settlerHookCandidate) error {
+	for i, candidate := range candidates {
+		if !isRecognizedHookType(candidate.Type) {
+			return fmt.Errorf("newHookCandidates[%d] has invalid type: %s", i, candidate.Type)
+		}
+		if strings.TrimSpace(candidate.PayoffTiming) != "" && !isRecognizedPayoffTiming(candidate.PayoffTiming) {
+			return fmt.Errorf("newHookCandidates[%d] has invalid payoff timing: %s", i, candidate.PayoffTiming)
+		}
+		if strings.TrimSpace(candidate.ExpectedPayoff) == "" && strings.TrimSpace(candidate.Notes) == "" {
+			return fmt.Errorf("newHookCandidates[%d] missing description", i)
+		}
+		if isMetaPlaceholder(strings.TrimSpace(candidate.ExpectedPayoff)) || isMetaPlaceholder(strings.TrimSpace(candidate.Notes)) {
+			return fmt.Errorf("newHookCandidates[%d] is not grounded", i)
+		}
+	}
+	return nil
+}
+
+func validateSettlerNotes(notes []string) error {
+	for i, note := range notes {
+		note = strings.TrimSpace(note)
+		if note == "" {
+			continue
+		}
+		if isMetaPlaceholder(note) {
+			return fmt.Errorf("notes[%d] is not grounded", i)
+		}
+	}
+	return nil
+}
+
+func validateSettlerChapterSummary(title string, summary settlerChapterSummary) error {
+	fields := []string{
+		strings.TrimSpace(summary.Characters),
+		strings.TrimSpace(summary.Events),
+		strings.TrimSpace(summary.State),
+		strings.TrimSpace(summary.Hook),
+		strings.TrimSpace(summary.Mood),
+		strings.TrimSpace(summary.Type),
+	}
+	for _, field := range fields {
+		if field != "" && isMetaPlaceholder(field) {
+			return fmt.Errorf("chapter summary contains placeholder-like value")
+		}
+	}
+	if strings.TrimSpace(summary.Title) != "" && strings.TrimSpace(title) != "" {
+		summaryTitle := strings.TrimSpace(summary.Title)
+		if !roughlySameTitle(summaryTitle, strings.TrimSpace(title)) {
+			return fmt.Errorf("chapter summary title mismatch: got %q want %q", summaryTitle, strings.TrimSpace(title))
+		}
+	}
+	return nil
+}
+
+func validateSettlerGrounding(content string, delta *settlerDelta) error {
+	if delta == nil {
+		return nil
+	}
+	body := normalizeGroundingText(content)
+	if body == "" {
+		return nil
+	}
+	for key, value := range delta.CurrentStatePatch {
+		if value == "" {
+			continue
+		}
+		if !hasGroundingSignal(body, value) {
+			return fmt.Errorf("state patch %s looks ungrounded: %s", key, value)
+		}
+	}
+	summaryChecks := []struct {
+		label string
+		value string
+	}{
+		{"events", delta.ChapterSummary.Events},
+		{"state", delta.ChapterSummary.State},
+		{"hook", delta.ChapterSummary.Hook},
+	}
+	for _, item := range summaryChecks {
+		value := strings.TrimSpace(item.value)
+		if value == "" {
+			continue
+		}
+		if !hasGroundingSignal(body, value) {
+			return fmt.Errorf("chapter summary %s looks ungrounded: %s", item.label, value)
+		}
+	}
+	return nil
+}
+
+func settlerDeltaHasSignal(delta settlerDelta) bool {
+	if len(delta.CurrentStatePatch) > 0 || len(delta.HookOps.Upsert) > 0 || len(delta.HookOps.Resolve) > 0 ||
+		len(delta.HookOps.Defer) > 0 || len(delta.NewHookCandidates) > 0 || len(delta.Notes) > 0 {
+		return true
+	}
+	summary := delta.ChapterSummary
+	return strings.TrimSpace(summary.Title) != "" ||
+		strings.TrimSpace(summary.Characters) != "" ||
+		strings.TrimSpace(summary.Events) != "" ||
+		strings.TrimSpace(summary.State) != "" ||
+		strings.TrimSpace(summary.Hook) != "" ||
+		strings.TrimSpace(summary.Mood) != "" ||
+		strings.TrimSpace(summary.Type) != ""
+}
+
+func sameStateValue(state *model.BookState, key, value string) bool {
+	if state == nil {
+		return false
+	}
+	switch key {
+	case "currentLocation":
+		return strings.TrimSpace(state.CurrentLocation) == value
+	case "protagonistState":
+		return strings.TrimSpace(state.ProtagonistState) == value
+	case "currentGoal":
+		return strings.TrimSpace(state.CurrentGoal) == value
+	case "currentConstraint":
+		return strings.TrimSpace(state.CurrentConstraint) == value
+	case "currentAlliances":
+		return strings.TrimSpace(state.CurrentAlliances) == value
+	case "currentConflict":
+		return strings.TrimSpace(state.CurrentConflict) == value
+	default:
+		return false
+	}
+}
+
+func roughlySameTitle(a, b string) bool {
+	a = normalizeGroundingText(a)
+	b = normalizeGroundingText(b)
+	return a == b || strings.Contains(a, b) || strings.Contains(b, a)
+}
+
+func hasGroundingSignal(body, candidate string) bool {
+	candidate = normalizeGroundingText(candidate)
+	if candidate == "" {
+		return false
+	}
+	if strings.Contains(body, candidate) {
+		return true
+	}
+	for _, token := range groundingTokens(candidate) {
+		if len([]rune(token)) < 2 {
+			continue
+		}
+		if strings.Contains(body, token) {
+			return true
+		}
+	}
+	return false
+}
+
+func groundingTokens(raw string) []string {
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == '，' || r == '。' || r == '；' || r == '：' || r == ',' || r == '.' || r == ';' || r == ':' || r == '\n'
+	})
+	tokens := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			tokens = append(tokens, part)
+		}
+	}
+	return tokens
+}
+
+func normalizeGroundingText(raw string) string {
+	raw = strings.TrimSpace(raw)
+	replacer := strings.NewReplacer(
+		"\n", "",
+		"\r", "",
+		"\t", "",
+		" ", "",
+		"“", "",
+		"”", "",
+		"\"", "",
+	)
+	return replacer.Replace(raw)
+}
+
+func isMetaPlaceholder(raw string) bool {
+	raw = normalizeGroundingText(raw)
+	if raw == "" {
+		return false
+	}
+
+	exactBadPhrases := []string{
+		"同上", "略", "暂无", "无变化", "未变化", "保持不变", "延续上章", "沿用上章",
+		"未提及", "未知", "待定", "n/a", "na", "无",
+	}
+	for _, phrase := range exactBadPhrases {
+		if raw == normalizeGroundingText(phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+func isRecognizedHookType(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "plot", "剧情", "conflict", "冲突", "item", "道具", "物品", "mystery", "悬疑", "谜题", "character", "人物":
+		return true
+	default:
+		return false
+	}
+}
+
+func isRecognizedHookStatus(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "seed", "种子", "open", "开放", "progressing", "推进中", "advanced", "resolved", "已回收", "回收", "deferred", "延后", "stale", "过期":
+		return true
+	default:
+		return false
+	}
+}
+
+func isRecognizedPayoffTiming(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "immediate", "立即", "near-term", "近期", "mid-arc", "mid-term", "中程", "中期", "slow-burn", "慢热", "长线":
+		return true
+	default:
+		return false
+	}
+}
+
 func (p *Pipeline) buildSettlerContext(bookID uint) (string, error) {
 	foundations, err := p.truth.ListFoundations(bookID)
+	if err != nil {
+		return "", err
+	}
+	bookState, err := p.truth.GetBookState(bookID)
+	if err != nil {
+		return "", err
+	}
+	characters, err := p.truth.GetCharacters(bookID)
+	if err != nil {
+		return "", err
+	}
+	facts, err := p.truth.GetFacts(bookID)
 	if err != nil {
 		return "", err
 	}
@@ -774,6 +1148,24 @@ func (p *Pipeline) buildSettlerContext(bookID uint) (string, error) {
 	b.WriteString("### Foundations\n")
 	for _, f := range foundations {
 		b.WriteString(fmt.Sprintf("## %s\n%s\n\n", f.FileType, clipText(strings.TrimSpace(f.Content), 1200)))
+	}
+
+	b.WriteString("### Book State\n")
+	if payload, err := json.Marshal(bookState); err == nil {
+		b.WriteString(string(payload))
+		b.WriteString("\n\n")
+	}
+
+	b.WriteString("### Characters\n")
+	if payload, err := json.Marshal(characters); err == nil {
+		b.WriteString(string(payload))
+		b.WriteString("\n\n")
+	}
+
+	b.WriteString("### Active Facts\n")
+	if payload, err := json.Marshal(facts); err == nil {
+		b.WriteString(string(payload))
+		b.WriteString("\n\n")
 	}
 
 	b.WriteString("### Hooks\n")
@@ -1172,6 +1564,7 @@ func (p *Pipeline) extractTruthFiles(ctx context.Context, bookID uint, chapterNu
 }
 
 func (p *Pipeline) saveChapterSnapshot(bookID uint, chapterNumber uint, sections map[string]string) {
+	foundations, _ := p.truth.ListFoundations(bookID)
 	characters, _ := p.truth.GetCharacters(bookID)
 	facts, _ := p.truth.GetFacts(bookID)
 	hooks, _ := p.truth.GetHooks(bookID)
@@ -1190,6 +1583,7 @@ func (p *Pipeline) saveChapterSnapshot(bookID uint, chapterNumber uint, sections
 	}
 	currentStateJSON, _ := json.Marshal(currentState)
 	bookStateJSON, _ := json.Marshal(bookState)
+	foundationsJSON, _ := json.Marshal(foundations)
 	charactersJSON, _ := json.Marshal(characters)
 	factsJSON, _ := json.Marshal(facts)
 
@@ -1212,6 +1606,7 @@ func (p *Pipeline) saveChapterSnapshot(bookID uint, chapterNumber uint, sections
 		ChapterNumber:        chapterNumber,
 		CurrentStateJSON:     string(currentStateJSON),
 		BookStateJSON:        string(bookStateJSON),
+		FoundationsJSON:      string(foundationsJSON),
 		CharactersJSON:       string(charactersJSON),
 		FactsJSON:            string(factsJSON),
 		HooksJSON:            string(hooksJSON),
@@ -1368,6 +1763,7 @@ func (p *Pipeline) saveInitialBookState(book *model.Book, sections map[string]st
 }
 
 func (p *Pipeline) saveInitialSnapshot(book *model.Book, sections map[string]string) {
+	foundations, _ := p.truth.ListFoundations(book.ID)
 	characters, _ := p.truth.GetCharacters(book.ID)
 	facts, _ := p.truth.GetFacts(book.ID)
 	hooks, _ := p.truth.GetHooks(book.ID)
@@ -1403,6 +1799,7 @@ func (p *Pipeline) saveInitialSnapshot(book *model.Book, sections map[string]str
 	}
 	currentStateJSON, _ := json.Marshal(currentState)
 	bookStateJSON, _ := json.Marshal(bookState)
+	foundationsJSON, _ := json.Marshal(foundations)
 	charactersJSON, _ := json.Marshal(characters)
 	factsJSON, _ := json.Marshal(facts)
 	hooksJSON, _ := json.Marshal(hooks)
@@ -1429,6 +1826,7 @@ func (p *Pipeline) saveInitialSnapshot(book *model.Book, sections map[string]str
 		ChapterNumber:        0,
 		CurrentStateJSON:     string(currentStateJSON),
 		BookStateJSON:        string(bookStateJSON),
+		FoundationsJSON:      string(foundationsJSON),
 		CharactersJSON:       string(charactersJSON),
 		FactsJSON:            string(factsJSON),
 		HooksJSON:            string(hooksJSON),
@@ -2243,6 +2641,176 @@ func buildSituationSummary(state *model.BookState) string {
 		return strings.TrimSpace(state.SituationSummary)
 	}
 	return clipText(strings.Join(filtered, "；"), 500)
+}
+
+func (p *Pipeline) applyFallbackBookState(bookID uint, chapterNumber uint, updatedState string) error {
+	state, err := p.truth.GetBookState(bookID)
+	if err != nil {
+		return fmt.Errorf("get book state: %w", err)
+	}
+	if state == nil {
+		state = &model.BookState{BookID: bookID}
+	}
+
+	if state.ProtagonistName == "" {
+		characters, _ := p.truth.GetCharacters(bookID)
+		for _, c := range characters {
+			if c.RoleType == model.CharacterProtagonist {
+				state.ProtagonistName = c.Name
+				break
+			}
+		}
+	}
+
+	patch := parseFallbackStatePatch(updatedState)
+	if summary, ok := p.findChapterSummary(bookID, chapterNumber); ok {
+		mergeSummaryFallbackIntoPatch(patch, *summary)
+	}
+
+	applyFallbackStatePatch(state, patch)
+	state.CurrentChapter = chapterNumber
+	state.SourceChapter = chapterNumber
+	if strings.TrimSpace(state.SituationSummary) == "" {
+		state.SituationSummary = buildSituationSummary(state)
+	} else {
+		state.SituationSummary = clipText(firstNonEmpty(buildSituationSummary(state), state.SituationSummary), 500)
+	}
+
+	if err := p.truth.SaveBookState(state); err != nil {
+		return fmt.Errorf("save fallback book state: %w", err)
+	}
+	if len(patch) > 0 {
+		if err := p.upsertFoundation(bookID, model.FoundationCurrentFocus, buildCurrentFocusDelta(chapterNumber, patch)); err != nil {
+			return fmt.Errorf("update current_focus fallback: %w", err)
+		}
+	}
+	return nil
+}
+
+func parseFallbackStatePatch(raw string) map[string]string {
+	patch := make(map[string]string)
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return patch
+	}
+
+	if jsonStr := extractJSON(raw); jsonStr != "" {
+		var parsed map[string]string
+		if err := json.Unmarshal([]byte(jsonStr), &parsed); err == nil {
+			for key, value := range parsed {
+				key = strings.TrimSpace(key)
+				value = strings.TrimSpace(value)
+				if _, ok := allowedCurrentStatePatchKeys[key]; ok && value != "" {
+					patch[key] = clipText(value, 240)
+				}
+			}
+			if len(patch) > 0 {
+				return patch
+			}
+		}
+	}
+
+	for _, row := range parseMarkdownTableRows(raw) {
+		if len(row) < 2 {
+			continue
+		}
+		label := normalizeFallbackStateLabel(cellAt(row, 0))
+		value := strings.TrimSpace(cellAt(row, 1))
+		if label == "" || value == "" {
+			continue
+		}
+		switch label {
+		case "currentLocation":
+			patch[label] = mergeStateText(patch[label], value, 240)
+		case "protagonistState":
+			patch[label] = mergeStateText(patch[label], value, 240)
+		case "currentGoal":
+			patch[label] = mergeStateText(patch[label], value, 240)
+		case "currentConstraint":
+			patch[label] = mergeStateText(patch[label], value, 240)
+		case "currentAlliances":
+			patch[label] = mergeStateText(patch[label], value, 240)
+		case "currentConflict":
+			patch[label] = mergeStateText(patch[label], value, 240)
+		}
+	}
+
+	return patch
+}
+
+func normalizeFallbackStateLabel(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "状态项", "item", "字段":
+		return ""
+	case "当前锚点", "当前位置", "当前地点", "current anchor", "current location":
+		return "currentLocation"
+	case "主角状态", "当前状态", "人物状态", "protagonist state":
+		return "protagonistState"
+	case "当前目标", "目标", "current goal":
+		return "currentGoal"
+	case "环境状态", "当前限制", "限制", "constraint", "environment":
+		return "currentConstraint"
+	case "当前敌我", "敌我态势", "当前盟友", "alliances":
+		return "currentAlliances"
+	case "当前冲突", "核心冲突", "威胁评级", "threat", "current conflict":
+		return "currentConflict"
+	default:
+		return ""
+	}
+}
+
+func mergeSummaryFallbackIntoPatch(patch map[string]string, summary model.ChapterSummary) {
+	if patch == nil {
+		return
+	}
+	if strings.TrimSpace(patch["protagonistState"]) == "" {
+		patch["protagonistState"] = clipText(strings.TrimSpace(summary.StateChanges), 240)
+	}
+	if strings.TrimSpace(patch["currentConflict"]) == "" {
+		patch["currentConflict"] = clipText(firstNonEmpty(summary.HookActivity, summary.KeyEvents), 240)
+	}
+}
+
+func applyFallbackStatePatch(state *model.BookState, patch map[string]string) {
+	if state == nil || len(patch) == 0 {
+		return
+	}
+	if v := strings.TrimSpace(patch["currentLocation"]); v != "" {
+		state.CurrentLocation = v
+	}
+	if v := strings.TrimSpace(patch["protagonistState"]); v != "" {
+		state.ProtagonistState = v
+	}
+	if v := strings.TrimSpace(patch["currentGoal"]); v != "" {
+		state.CurrentGoal = v
+	}
+	if v := strings.TrimSpace(patch["currentConstraint"]); v != "" {
+		state.CurrentConstraint = v
+	}
+	if v := strings.TrimSpace(patch["currentAlliances"]); v != "" {
+		state.CurrentAlliances = v
+	}
+	if v := strings.TrimSpace(patch["currentConflict"]); v != "" {
+		state.CurrentConflict = v
+	}
+}
+
+func mergeStateText(current, incoming string, max int) string {
+	current = strings.TrimSpace(current)
+	incoming = strings.TrimSpace(incoming)
+	if incoming == "" {
+		return current
+	}
+	if current == "" {
+		return clipText(incoming, max)
+	}
+	if current == incoming || strings.Contains(current, incoming) {
+		return clipText(current, max)
+	}
+	if strings.Contains(incoming, current) {
+		return clipText(incoming, max)
+	}
+	return clipText(current+"；"+incoming, max)
 }
 
 func buildAuditDrift(settlement string, notes []string) string {

@@ -211,6 +211,7 @@ type ChapterSnapshot struct {
 	ChapterNumber        uint      `json:"chapter_number" gorm:"uniqueIndex:idx_book_snapshot;not null"`
 	CurrentStateJSON     string    `json:"current_state_json" gorm:"type:json"`
 	BookStateJSON        string    `json:"book_state_json" gorm:"type:json"`
+	FoundationsJSON      string    `json:"foundations_json" gorm:"type:json"`
 	CharactersJSON       string    `json:"characters_json" gorm:"type:json"`
 	FactsJSON            string    `json:"facts_json" gorm:"type:json"`
 	HooksJSON            string    `json:"hooks_json" gorm:"type:json"`
