@@ -21,6 +21,12 @@ func NewTruthFileRepo(db *gorm.DB) repository.TruthFileRepository {
 	return &truthFileRepo{db: db}
 }
 
+func (r *truthFileRepo) WithinTx(fn func(repository.TruthFileRepository) error) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		return fn(&truthFileRepo{db: tx})
+	})
+}
+
 func (r *truthFileRepo) GetCharacters(bookID uint) ([]model.Character, error) {
 	var chars []model.Character
 	err := r.db.Where("book_id = ?", bookID).Order("updated_at desc, id desc").Find(&chars).Error

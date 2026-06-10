@@ -100,6 +100,18 @@ type TruthFileRepository interface {
 	GetRuntimeArtifacts(bookID uint, chapterNumber uint) ([]model.RuntimeArtifact, error)
 	GetAgentModelRoute(bookID uint, agentName string) (*model.AgentModelRoute, error)
 	SaveAgentModelRoute(r *model.AgentModelRoute) error
+	CreateChapterWriteRun(run *model.ChapterWriteRun) error
+	SaveChapterWriteRun(run *model.ChapterWriteRun) error
+	GetChapterWriteRun(runID uint) (*model.ChapterWriteRun, error)
+	ListChapterWriteRuns(bookID uint, limit int) ([]model.ChapterWriteRun, error)
+	GetActiveChapterWriteRun(bookID uint) (*model.ChapterWriteRun, error)
+	CreateChapterWriteBaseline(b *model.ChapterWriteBaseline) error
+	GetChapterWriteBaseline(runID uint) (*model.ChapterWriteBaseline, error)
+	CreateChapterWriteStageRun(stage *model.ChapterWriteStageRun) error
+	SaveChapterWriteStageRun(stage *model.ChapterWriteStageRun) error
+	GetChapterWriteStages(runID uint) ([]model.ChapterWriteStageRun, error)
+	GetChapterWriteStage(runID uint, stage model.ChapterWriteStage) (*model.ChapterWriteStageRun, error)
 	DeleteBookCascade(bookID uint) error
 	DeleteLatestChapterCascade(bookID uint, chapterNumber uint) error
+	WithinTx(fn func(TruthFileRepository) error) error
 }

@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"whwriter/backend/internal/agent"
 	"whwriter/backend/internal/llm"
@@ -25,6 +26,8 @@ type Pipeline struct {
 	llm      *llm.Client
 	truth    repository.TruthFileRepository
 	registry *agent.Registry
+	runMu    sync.Mutex
+	runStops map[uint]context.CancelFunc
 }
 
 func New(llmClient *llm.Client, truthRepo repository.TruthFileRepository) *Pipeline {
@@ -32,6 +35,7 @@ func New(llmClient *llm.Client, truthRepo repository.TruthFileRepository) *Pipel
 		llm:      llmClient,
 		truth:    truthRepo,
 		registry: agent.NewRegistry(),
+		runStops: make(map[uint]context.CancelFunc),
 	}
 }
 
@@ -118,6 +122,20 @@ type settlerDelta struct {
 	Notes             []string               `json:"notes"`
 }
 
+type extractedEvidenceNote struct {
+	Title   string `json:"title"`
+	Kind    string `json:"kind"`
+	Content string `json:"content"`
+}
+
+type extractedTruthFiles struct {
+	Characters    []model.Character
+	DurableFacts  []model.Fact
+	Hooks         []model.Hook
+	EvidenceNotes []extractedEvidenceNote
+	Summary       *model.ChapterSummary
+}
+
 var allowedCurrentStatePatchKeys = map[string]struct{}{
 	"currentLocation":   {},
 	"protagonistState":  {},
@@ -134,6 +152,12 @@ func emitProgress(w ProgressWriter, stage, msg string) {
 	data, _ := json.Marshal(map[string]string{"stage": stage, "message": msg})
 	w.Write([]byte("data: " + string(data) + "\n\n"))
 	w.Flush()
+}
+
+func (p *Pipeline) withTruthRepo(truth repository.TruthFileRepository) *Pipeline {
+	cloned := *p
+	cloned.truth = truth
+	return &cloned
 }
 
 func (p *Pipeline) InitBook(ctx context.Context, in InitBookInput) error {
@@ -225,13 +249,6 @@ func (p *Pipeline) WriteChapter(ctx context.Context, in WriteChapterInput) (*Wri
 		return nil, fmt.Errorf("build context: %w", err)
 	}
 
-	_ = p.truth.SaveRuntimeArtifact(&model.RuntimeArtifact{
-		BookID:        in.BookID,
-		ChapterNumber: chapterNumber,
-		ArtifactType:  model.ArtifactContext,
-		Content:       contextPkg,
-	})
-
 	if err := emit("planning", "Planner 正在规划本章内容..."); err != nil {
 		return nil, err
 	}
@@ -259,13 +276,6 @@ func (p *Pipeline) WriteChapter(ctx context.Context, in WriteChapterInput) (*Wri
 	if err != nil {
 		return nil, fmt.Errorf("plan: %w", err)
 	}
-
-	_ = p.truth.SaveRuntimeArtifact(&model.RuntimeArtifact{
-		BookID:        in.BookID,
-		ChapterNumber: chapterNumber,
-		ArtifactType:  model.ArtifactIntent,
-		Content:       memo,
-	})
 
 	if err := emit("writing", "Writer 正在创作正文..."); err != nil {
 		return nil, err
@@ -329,33 +339,8 @@ func (p *Pipeline) WriteChapter(ctx context.Context, in WriteChapterInput) (*Wri
 		title = fmt.Sprintf("第%d章", chapterNumber)
 	}
 	if content == "" {
-		debugPayload := map[string]string{
-			"title":           title,
-			"raw_output":      rawOutput,
-			"parsed_sections": strings.Join(sortedSectionNames(sections), ", "),
-			"pre_write_check": sections["PRE_WRITE_CHECK"],
-			"post_settlement": sections["POST_SETTLEMENT"],
-			"updated_state":   sections["UPDATED_STATE"],
-			"chapter_summary": sections["CHAPTER_SUMMARY"],
-			"chapter_content": sections["CHAPTER_CONTENT"],
-		}
-		if payload, marshalErr := json.Marshal(debugPayload); marshalErr == nil {
-			_ = p.truth.SaveRuntimeArtifact(&model.RuntimeArtifact{
-				BookID:        in.BookID,
-				ChapterNumber: chapterNumber,
-				ArtifactType:  model.ArtifactTrace,
-				Content:       string(payload),
-			})
-		}
 		return nil, fmt.Errorf("writer 输出缺少 CHAPTER_CONTENT，未写入章节正文")
 	}
-
-	_ = p.truth.SaveRuntimeArtifact(&model.RuntimeArtifact{
-		BookID:        in.BookID,
-		ChapterNumber: chapterNumber,
-		ArtifactType:  model.ArtifactPlan,
-		Content:       sections["PRE_WRITE_CHECK"],
-	})
 
 	tracePayload := map[string]interface{}{
 		"writer": map[string]interface{}{
@@ -375,50 +360,42 @@ func (p *Pipeline) WriteChapter(ctx context.Context, in WriteChapterInput) (*Wri
 	}
 
 	auditResult, auditRaw, err := p.runAuditor(ctx, book, chapterNumber, memo, contextPkg, content, in.ModelID)
-	if err == nil {
-		tracePayload["audit"] = map[string]interface{}{
-			"raw_output": auditRaw,
-			"result":     auditResult,
-		}
-	} else {
-		tracePayload["audit"] = map[string]interface{}{
-			"error": err.Error(),
-		}
+	if err != nil {
+		return nil, fmt.Errorf("audit: %w", err)
+	}
+	tracePayload["audit"] = map[string]interface{}{
+		"raw_output": auditRaw,
+		"result":     auditResult,
 	}
 
-	if err == nil && !auditResult.Passed {
+	if !auditResult.Passed {
 		if err := emit("revising", "Reviser 正在根据审稿意见修订章节..."); err != nil {
 			return nil, err
 		}
 		revisedContent, revisedSections, reviserRaw, reviseErr := p.runReviser(ctx, book, chapterNumber, memo, contextPkg, content, auditRaw, in.ModelID)
-		if reviseErr == nil && strings.TrimSpace(revisedContent) != "" {
-			content = strings.TrimSpace(revisedContent)
-			tracePayload["reviser"] = map[string]interface{}{
-				"raw_output":    reviserRaw,
-				"sections":      sortedSectionNames(revisedSections),
-				"fixed_issues":  revisedSections["FIXED_ISSUES"],
-				"updated_state": revisedSections["UPDATED_STATE"],
-			}
-			if strings.TrimSpace(revisedSections["UPDATED_STATE"]) != "" {
-				sections["UPDATED_STATE"] = revisedSections["UPDATED_STATE"]
-			}
-			if strings.TrimSpace(revisedSections["UPDATED_HOOKS"]) != "" {
-				sections["UPDATED_HOOKS"] = revisedSections["UPDATED_HOOKS"]
-			}
-			if strings.TrimSpace(revisedSections["POST_SETTLEMENT"]) != "" {
-				sections["POST_SETTLEMENT"] = revisedSections["POST_SETTLEMENT"]
-			}
-			tracePayload["writer"].(map[string]interface{})["finalized_source"] = "reviser"
-		} else {
-			reviserErrMsg := "reviser 未产出可用修订结果"
-			if reviseErr != nil {
-				reviserErrMsg = reviseErr.Error()
-			}
-			tracePayload["reviser"] = map[string]interface{}{
-				"error":      reviserErrMsg,
-				"raw_output": reviserRaw,
-			}
+		if reviseErr != nil {
+			return nil, fmt.Errorf("revise: %w", reviseErr)
 		}
+		if strings.TrimSpace(revisedContent) == "" {
+			return nil, fmt.Errorf("revise: reviser 未产出可用修订结果")
+		}
+		content = strings.TrimSpace(revisedContent)
+		tracePayload["reviser"] = map[string]interface{}{
+			"raw_output":    reviserRaw,
+			"sections":      sortedSectionNames(revisedSections),
+			"fixed_issues":  revisedSections["FIXED_ISSUES"],
+			"updated_state": revisedSections["UPDATED_STATE"],
+		}
+		if strings.TrimSpace(revisedSections["UPDATED_STATE"]) != "" {
+			sections["UPDATED_STATE"] = revisedSections["UPDATED_STATE"]
+		}
+		if strings.TrimSpace(revisedSections["UPDATED_HOOKS"]) != "" {
+			sections["UPDATED_HOOKS"] = revisedSections["UPDATED_HOOKS"]
+		}
+		if strings.TrimSpace(revisedSections["POST_SETTLEMENT"]) != "" {
+			sections["POST_SETTLEMENT"] = revisedSections["POST_SETTLEMENT"]
+		}
+		tracePayload["writer"].(map[string]interface{})["finalized_source"] = "reviser"
 	}
 
 	if err := emit("polishing", "Polisher 正在润色正文..."); err != nil {
@@ -426,17 +403,17 @@ func (p *Pipeline) WriteChapter(ctx context.Context, in WriteChapterInput) (*Wri
 	}
 
 	polishedContent, polishErr := p.runPolisher(ctx, book, chapterNumber, content, in.ModelID)
-	if polishErr == nil && strings.TrimSpace(polishedContent) != "" {
-		content = strings.TrimSpace(polishedContent)
-		tracePayload["polisher"] = map[string]interface{}{
-			"applied": true,
-		}
-		tracePayload["writer"].(map[string]interface{})["finalized_source"] = "polisher"
-	} else if polishErr != nil {
-		tracePayload["polisher"] = map[string]interface{}{
-			"error": polishErr.Error(),
-		}
+	if polishErr != nil {
+		return nil, fmt.Errorf("polish: %w", polishErr)
 	}
+	if strings.TrimSpace(polishedContent) == "" {
+		return nil, fmt.Errorf("polish: polisher 未产出可用正文")
+	}
+	content = strings.TrimSpace(polishedContent)
+	tracePayload["polisher"] = map[string]interface{}{
+		"applied": true,
+	}
+	tracePayload["writer"].(map[string]interface{})["finalized_source"] = "polisher"
 
 	ch := &model.Chapter{
 		BookID:        in.BookID,
@@ -446,10 +423,6 @@ func (p *Pipeline) WriteChapter(ctx context.Context, in WriteChapterInput) (*Wri
 		WordCount:     uint(len([]rune(content))),
 		Status:        model.ChapterDraft,
 	}
-	if err := p.truth.SaveChapter(ch); err != nil {
-		return nil, fmt.Errorf("save chapter: %w", err)
-	}
-
 	if err := emit("extracting", "Settler 正在结算真相文件增量..."); err != nil {
 		return nil, err
 	}
@@ -458,65 +431,113 @@ func (p *Pipeline) WriteChapter(ctx context.Context, in WriteChapterInput) (*Wri
 	sections["CHAPTER_CONTENT"] = content
 
 	settleSections, settleDelta, settlerRaw, settleErr := p.settleTruthFiles(ctx, book, chapterNumber, title, content, writerModelID)
-	if settleErr == nil {
-		for key, value := range settleSections {
-			if strings.TrimSpace(value) != "" {
-				sections[key] = value
-			}
-		}
-		p.saveDebugTrace(in.BookID, chapterNumber, "settler_done", map[string]any{
-			"sections":  sortedSectionNames(settleSections),
-			"has_delta": true,
-		})
-		tracePayload["settler"] = map[string]any{
-			"raw_output": settlerRaw,
-			"delta":      settleDelta,
-		}
-	} else {
-		p.saveDebugTrace(in.BookID, chapterNumber, "settler_error", map[string]any{
-			"error": settleErr.Error(),
-		})
-		tracePayload["settler"] = map[string]any{
-			"error":      settleErr.Error(),
-			"raw_output": settlerRaw,
+	if settleErr != nil {
+		return nil, fmt.Errorf("settle truth files: %w", settleErr)
+	}
+	for key, value := range settleSections {
+		if strings.TrimSpace(value) != "" {
+			sections[key] = value
 		}
 	}
-
-	p.saveDebugTrace(in.BookID, chapterNumber, "extract_start", map[string]any{
-		"save_hooks":   settleErr != nil,
-		"save_summary": settleErr != nil,
-	})
-	p.extractTruthFiles(
+	tracePayload["settler"] = map[string]any{
+		"raw_output": settlerRaw,
+		"delta":      settleDelta,
+	}
+	extractedTruth, extractErr := p.extractTruthFiles(
 		ctx,
 		in.BookID,
 		chapterNumber,
 		fmt.Sprintf("章节标题：%s\n\n章节正文：\n%s", title, content),
 		writerModelID,
-		extractionOptions{SaveHooks: settleErr != nil, SaveSummary: settleErr != nil},
 	)
-	if settleErr != nil {
-		if err := p.applyFallbackBookState(in.BookID, chapterNumber, sections["UPDATED_STATE"]); err != nil {
-			p.saveDebugTrace(in.BookID, chapterNumber, "state_fallback_error", map[string]any{
-				"error": err.Error(),
-			})
-		} else {
-			p.saveDebugTrace(in.BookID, chapterNumber, "state_fallback_done", nil)
-		}
+	if extractErr != nil {
+		return nil, fmt.Errorf("extract truth files: %w", extractErr)
 	}
-
+	if extractedTruth == nil {
+		return nil, fmt.Errorf("extract truth files: empty result")
+	}
+	tracePayload["extract"] = map[string]any{
+		"characters": len(extractedTruth.Characters),
+		"facts":      len(extractedTruth.DurableFacts),
+		"hooks":      len(extractedTruth.Hooks),
+		"evidence":   len(extractedTruth.EvidenceNotes),
+	}
 	if err := emit("snapshot", "正在保存章节快照和运行时产物..."); err != nil {
 		return nil, err
 	}
-	p.saveDebugTrace(in.BookID, chapterNumber, "snapshot_start", nil)
 
-	p.saveChapterSnapshot(in.BookID, chapterNumber, sections)
-	if payload, marshalErr := json.Marshal(tracePayload); marshalErr == nil {
-		_ = p.truth.SaveRuntimeArtifact(&model.RuntimeArtifact{
-			BookID:        in.BookID,
-			ChapterNumber: chapterNumber,
-			ArtifactType:  model.ArtifactTrace,
-			Content:       string(payload),
+	txErr := p.truth.WithinTx(func(txTruth repository.TruthFileRepository) error {
+		txPipeline := p.withTruthRepo(txTruth)
+
+		for _, artifact := range []*model.RuntimeArtifact{
+			{
+				BookID:        in.BookID,
+				ChapterNumber: chapterNumber,
+				ArtifactType:  model.ArtifactContext,
+				Content:       contextPkg,
+			},
+			{
+				BookID:        in.BookID,
+				ChapterNumber: chapterNumber,
+				ArtifactType:  model.ArtifactIntent,
+				Content:       memo,
+			},
+			{
+				BookID:        in.BookID,
+				ChapterNumber: chapterNumber,
+				ArtifactType:  model.ArtifactPlan,
+				Content:       sections["PRE_WRITE_CHECK"],
+			},
+		} {
+			if err := txTruth.SaveRuntimeArtifact(artifact); err != nil {
+				return err
+			}
+		}
+
+		if err := txTruth.SaveChapter(ch); err != nil {
+			return fmt.Errorf("save chapter: %w", err)
+		}
+		if err := txPipeline.applySettlerDelta(in.BookID, chapterNumber, title, sections["POST_SETTLEMENT"], settleDelta); err != nil {
+			return fmt.Errorf("apply settler delta: %w", err)
+		}
+		txPipeline.saveDebugTrace(in.BookID, chapterNumber, "settler_done", map[string]any{
+			"sections":  sortedSectionNames(settleSections),
+			"has_delta": true,
 		})
+
+		txPipeline.saveDebugTrace(in.BookID, chapterNumber, "extract_start", map[string]any{
+			"save_hooks":   false,
+			"save_summary": false,
+		})
+		if err := txPipeline.persistExtractedTruthFiles(in.BookID, chapterNumber, extractedTruth, extractionOptions{
+			SaveHooks:   false,
+			SaveSummary: false,
+		}); err != nil {
+			return fmt.Errorf("persist extracted truth files: %w", err)
+		}
+		txPipeline.saveDebugTrace(in.BookID, chapterNumber, "extract_done", map[string]any{
+			"characters": len(extractedTruth.Characters),
+			"facts":      len(extractedTruth.DurableFacts),
+			"hooks":      len(extractedTruth.Hooks),
+			"evidence":   len(extractedTruth.EvidenceNotes),
+		})
+
+		txPipeline.saveDebugTrace(in.BookID, chapterNumber, "snapshot_start", nil)
+		txPipeline.saveChapterSnapshot(in.BookID, chapterNumber, sections)
+		if payload, marshalErr := json.Marshal(tracePayload); marshalErr == nil {
+			if err := txTruth.SaveRuntimeArtifact(&model.RuntimeArtifact{
+				BookID:        in.BookID,
+				ChapterNumber: chapterNumber,
+				ArtifactType:  model.ArtifactTrace,
+				Content:       string(payload),
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if txErr != nil {
+		return nil, fmt.Errorf("persist chapter state transaction: %w", txErr)
 	}
 
 	if err := emit("done", fmt.Sprintf("第%d章创作完成", chapterNumber)); err != nil {
@@ -769,10 +790,6 @@ func (p *Pipeline) settleTruthFiles(ctx context.Context, book *model.Book, chapt
 		return sections, delta, raw, fmt.Errorf("validate settler delta: %w", err)
 	}
 
-	if err := p.applySettlerDelta(book.ID, chapterNumber, title, sections["POST_SETTLEMENT"], delta); err != nil {
-		return sections, delta, raw, err
-	}
-
 	if len(delta.CurrentStatePatch) > 0 {
 		if payload, err := json.Marshal(delta.CurrentStatePatch); err == nil {
 			sections["UPDATED_STATE"] = string(payload)
@@ -964,7 +981,7 @@ func validateSettlerGrounding(content string, delta *settlerDelta) error {
 		if value == "" {
 			continue
 		}
-		if !hasGroundingSignal(body, value) {
+		if !hasStateGroundingSignal(key, body, value) {
 			return fmt.Errorf("state patch %s looks ungrounded: %s", key, value)
 		}
 	}
@@ -1031,6 +1048,16 @@ func roughlySameTitle(a, b string) bool {
 	return a == b || strings.Contains(a, b) || strings.Contains(b, a)
 }
 
+func hasStateGroundingSignal(key, body, candidate string) bool {
+	if hasGroundingSignal(body, candidate) {
+		return true
+	}
+	if key == "currentLocation" {
+		return hasLocationGroundingSignal(body, candidate)
+	}
+	return false
+}
+
 func hasGroundingSignal(body, candidate string) bool {
 	candidate = normalizeGroundingText(candidate)
 	if candidate == "" {
@@ -1048,6 +1075,40 @@ func hasGroundingSignal(body, candidate string) bool {
 		}
 	}
 	return false
+}
+
+func hasLocationGroundingSignal(body, candidate string) bool {
+	candidate = normalizeGroundingText(candidate)
+	if candidate == "" {
+		return false
+	}
+	if strings.Contains(body, candidate) {
+		return true
+	}
+
+	segments := locationGroundingSegments(candidate)
+	if len(segments) == 0 {
+		return false
+	}
+
+	matched := 0
+	longMatched := 0
+	for _, segment := range segments {
+		if strings.Contains(body, segment) {
+			matched++
+			if len([]rune(segment)) >= 3 {
+				longMatched++
+			}
+		}
+	}
+	if longMatched >= 1 && matched >= 2 {
+		return true
+	}
+	if matched >= 3 {
+		return true
+	}
+
+	return sharedGroundingNGrams(body, candidate, 2) >= 2 || sharedGroundingNGrams(body, candidate, 3) >= 1
 }
 
 func groundingTokens(raw string) []string {
@@ -1078,6 +1139,78 @@ func normalizeGroundingText(raw string) string {
 	return replacer.Replace(raw)
 }
 
+func locationGroundingSegments(raw string) []string {
+	raw = normalizeGroundingText(raw)
+	if raw == "" {
+		return nil
+	}
+	separators := []string{
+		"·", "/", "-", "到", "内", "外", "里", "中", "前", "后", "旁", "边",
+	}
+	seen := make(map[string]struct{})
+	var segments []string
+	appendSegment := func(part string) {
+		part = strings.TrimSpace(part)
+		part = normalizeGroundingText(part)
+		if len([]rune(part)) < 2 {
+			return
+		}
+		if _, ok := seen[part]; ok {
+			return
+		}
+		seen[part] = struct{}{}
+		segments = append(segments, part)
+	}
+	appendSegment(raw)
+	for _, sep := range separators {
+		if !strings.Contains(raw, sep) {
+			continue
+		}
+		for _, part := range strings.Split(raw, sep) {
+			appendSegment(part)
+		}
+	}
+	suffixes := []string{"偏房", "厢房", "东厢", "西厢", "院", "阁", "楼", "堂", "房", "府", "殿", "宫", "门", "街", "巷"}
+	for _, suffix := range suffixes {
+		idx := strings.Index(raw, suffix)
+		if idx <= 0 {
+			continue
+		}
+		prefix := []rune(raw[:idx])
+		if len(prefix) > 4 {
+			prefix = prefix[len(prefix)-4:]
+		}
+		appendSegment(string(prefix) + suffix)
+		appendSegment(suffix)
+	}
+	return segments
+}
+
+func sharedGroundingNGrams(body, candidate string, n int) int {
+	bodyRunes := []rune(body)
+	candidateRunes := []rune(candidate)
+	if n <= 0 || len(bodyRunes) < n || len(candidateRunes) < n {
+		return 0
+	}
+	bodySet := make(map[string]struct{})
+	for i := 0; i <= len(bodyRunes)-n; i++ {
+		bodySet[string(bodyRunes[i:i+n])] = struct{}{}
+	}
+	count := 0
+	seen := make(map[string]struct{})
+	for i := 0; i <= len(candidateRunes)-n; i++ {
+		token := string(candidateRunes[i : i+n])
+		if _, ok := seen[token]; ok {
+			continue
+		}
+		seen[token] = struct{}{}
+		if _, ok := bodySet[token]; ok {
+			count++
+		}
+	}
+	return count
+}
+
 func isMetaPlaceholder(raw string) bool {
 	raw = normalizeGroundingText(raw)
 	if raw == "" {
@@ -1098,7 +1231,7 @@ func isMetaPlaceholder(raw string) bool {
 
 func isRecognizedHookType(raw string) bool {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "", "plot", "剧情", "conflict", "冲突", "item", "道具", "物品", "mystery", "悬疑", "谜题", "character", "人物":
+	case "", "plot", "剧情", "conflict", "冲突", "item", "道具", "物品", "mystery", "悬疑", "谜题", "character", "人物", "relationship", "关系":
 		return true
 	default:
 		return false
@@ -1390,13 +1523,7 @@ func (p *Pipeline) upsertFoundation(bookID uint, fileType model.FoundationFileTy
 	})
 }
 
-func (p *Pipeline) extractTruthFiles(ctx context.Context, bookID uint, chapterNumber uint, rawOutput string, modelID uint, opts extractionOptions) {
-	p.saveDebugTrace(bookID, chapterNumber, "extract_llm_start", map[string]any{
-		"model_id":     modelID,
-		"raw_len":      len(rawOutput),
-		"save_hooks":   opts.SaveHooks,
-		"save_summary": opts.SaveSummary,
-	})
+func (p *Pipeline) extractTruthFiles(ctx context.Context, bookID uint, chapterNumber uint, rawOutput string, modelID uint) (*extractedTruthFiles, error) {
 	extractPrompt := `你是这本小说的设定管理员。请从以下章节输出中提取关键信息，以JSON格式返回。
 
 ## 输出格式
@@ -1423,21 +1550,12 @@ func (p *Pipeline) extractTruthFiles(ctx context.Context, bookID uint, chapterNu
 		{Role: "user", Content: extractPrompt},
 	}, 0.3)
 	if err != nil {
-		p.saveDebugTrace(bookID, chapterNumber, "extract_llm_error", map[string]any{
-			"error": err.Error(),
-		})
-		return
+		return nil, fmt.Errorf("extract truth llm: %w", err)
 	}
-	p.saveDebugTrace(bookID, chapterNumber, "extract_llm_done", map[string]any{
-		"result_len": len(result),
-	})
 
 	jsonStr := extractJSON(result)
 	if jsonStr == "" {
-		p.saveDebugTrace(bookID, chapterNumber, "extract_json_missing", map[string]any{
-			"result_preview": clipText(result, 400),
-		})
-		return
+		return nil, fmt.Errorf("extract truth json missing")
 	}
 
 	var extracted struct {
@@ -1457,12 +1575,8 @@ func (p *Pipeline) extractTruthFiles(ctx context.Context, bookID uint, chapterNu
 			Type        string `json:"type"`
 			Description string `json:"description"`
 		} `json:"hooks"`
-		EvidenceNotes []struct {
-			Title   string `json:"title"`
-			Kind    string `json:"kind"`
-			Content string `json:"content"`
-		} `json:"evidence_notes"`
-		Summary struct {
+		EvidenceNotes []extractedEvidenceNote `json:"evidence_notes"`
+		Summary       struct {
 			Title              string `json:"title"`
 			CharactersAppeared string `json:"characters_appeared"`
 			KeyEvents          string `json:"key_events"`
@@ -1474,10 +1588,14 @@ func (p *Pipeline) extractTruthFiles(ctx context.Context, bookID uint, chapterNu
 	}
 
 	if err := json.Unmarshal([]byte(jsonStr), &extracted); err != nil {
-		p.saveDebugTrace(bookID, chapterNumber, "extract_json_parse_error", map[string]any{
-			"error": err.Error(),
-		})
-		return
+		return nil, fmt.Errorf("extract truth json parse: %w", err)
+	}
+
+	resultData := &extractedTruthFiles{
+		Characters:    make([]model.Character, 0, len(extracted.Characters)),
+		DurableFacts:  make([]model.Fact, 0, len(extracted.DurableFacts)),
+		Hooks:         make([]model.Hook, 0, len(extracted.Hooks)),
+		EvidenceNotes: extracted.EvidenceNotes,
 	}
 
 	for _, c := range extracted.Characters {
@@ -1490,7 +1608,7 @@ func (p *Pipeline) extractTruthFiles(ctx context.Context, bookID uint, chapterNu
 		} else if c.RoleType == "major" {
 			rt = model.CharacterMajor
 		}
-		_ = p.truth.SaveCharacter(&model.Character{
+		resultData.Characters = append(resultData.Characters, model.Character{
 			BookID:          bookID,
 			Name:            c.Name,
 			RoleType:        rt,
@@ -1504,7 +1622,7 @@ func (p *Pipeline) extractTruthFiles(ctx context.Context, bookID uint, chapterNu
 		if f.Subject == "" {
 			continue
 		}
-		_ = p.truth.SaveFact(&model.Fact{
+		resultData.DurableFacts = append(resultData.DurableFacts, model.Fact{
 			BookID:           bookID,
 			Subject:          f.Subject,
 			Predicate:        f.Predicate,
@@ -1515,34 +1633,22 @@ func (p *Pipeline) extractTruthFiles(ctx context.Context, bookID uint, chapterNu
 		})
 	}
 
-	if len(extracted.EvidenceNotes) > 0 {
-		evidenceJSON, _ := json.Marshal(extracted.EvidenceNotes)
-		_ = p.truth.SaveRuntimeArtifact(&model.RuntimeArtifact{
-			BookID:        bookID,
-			ChapterNumber: chapterNumber,
-			ArtifactType:  model.ArtifactEvidence,
-			Content:       string(evidenceJSON),
+	for _, h := range extracted.Hooks {
+		if h.HookID == "" {
+			continue
+		}
+		resultData.Hooks = append(resultData.Hooks, model.Hook{
+			BookID:       bookID,
+			HookID:       h.HookID,
+			StartChapter: chapterNumber,
+			Type:         normalizeHookType(h.Type),
+			Status:       model.HookSeed,
+			Notes:        h.Description,
 		})
 	}
 
-	if opts.SaveHooks {
-		for _, h := range extracted.Hooks {
-			if h.HookID == "" {
-				continue
-			}
-			_ = p.truth.SaveHook(&model.Hook{
-				BookID:       bookID,
-				HookID:       h.HookID,
-				StartChapter: chapterNumber,
-				Type:         normalizeHookType(h.Type),
-				Status:       model.HookSeed,
-				Notes:        h.Description,
-			})
-		}
-	}
-
-	if opts.SaveSummary && extracted.Summary.KeyEvents != "" {
-		_ = p.truth.SaveChapterSummary(&model.ChapterSummary{
+	if extracted.Summary.KeyEvents != "" {
+		resultData.Summary = &model.ChapterSummary{
 			BookID:             bookID,
 			ChapterNumber:      chapterNumber,
 			Title:              extracted.Summary.Title,
@@ -1552,15 +1658,51 @@ func (p *Pipeline) extractTruthFiles(ctx context.Context, bookID uint, chapterNu
 			HookActivity:       extracted.Summary.HookActivity,
 			Mood:               extracted.Summary.Mood,
 			ChapterType:        extracted.Summary.ChapterType,
-		})
+		}
 	}
 
-	p.saveDebugTrace(bookID, chapterNumber, "extract_done", map[string]any{
-		"characters": len(extracted.Characters),
-		"facts":      len(extracted.DurableFacts),
-		"hooks":      len(extracted.Hooks),
-		"evidence":   len(extracted.EvidenceNotes),
-	})
+	return resultData, nil
+}
+
+func (p *Pipeline) persistExtractedTruthFiles(bookID uint, chapterNumber uint, extracted *extractedTruthFiles, opts extractionOptions) error {
+	if extracted == nil {
+		return nil
+	}
+
+	for i := range extracted.Characters {
+		if err := p.truth.SaveCharacter(&extracted.Characters[i]); err != nil {
+			return err
+		}
+	}
+	for i := range extracted.DurableFacts {
+		if err := p.truth.SaveFact(&extracted.DurableFacts[i]); err != nil {
+			return err
+		}
+	}
+	if len(extracted.EvidenceNotes) > 0 {
+		evidenceJSON, _ := json.Marshal(extracted.EvidenceNotes)
+		if err := p.truth.SaveRuntimeArtifact(&model.RuntimeArtifact{
+			BookID:        bookID,
+			ChapterNumber: chapterNumber,
+			ArtifactType:  model.ArtifactEvidence,
+			Content:       string(evidenceJSON),
+		}); err != nil {
+			return err
+		}
+	}
+	if opts.SaveHooks {
+		for i := range extracted.Hooks {
+			if err := p.truth.SaveHook(&extracted.Hooks[i]); err != nil {
+				return err
+			}
+		}
+	}
+	if opts.SaveSummary && extracted.Summary != nil {
+		if err := p.truth.SaveChapterSummary(extracted.Summary); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (p *Pipeline) saveChapterSnapshot(bookID uint, chapterNumber uint, sections map[string]string) {
@@ -2496,7 +2638,7 @@ func normalizeHookType(raw string) model.HookType {
 		return model.HookItem
 	case "mystery", "悬疑", "谜题":
 		return model.HookMystery
-	case "character", "人物":
+	case "character", "人物", "relationship", "关系":
 		return model.HookCharacter
 	default:
 		return model.HookPlot

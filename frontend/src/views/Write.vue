@@ -509,20 +509,42 @@
     <div v-if="showProgressModal" class="modal-overlay">
       <div class="modal progress-modal">
         <h3>AI 创作中</h3>
+        <div v-if="currentWriteRun" class="run-summary">
+          <div>Run #{{ currentWriteRun.id }} · 第 {{ currentWriteRun.target_chapter }} 章</div>
+          <div>{{ writeRunStatusLabel(currentWriteRun.status) }}<span v-if="currentWriteRun.current_stage"> · {{ currentWriteRun.current_stage }}</span></div>
+        </div>
         <div class="progress-steps">
           <div v-for="(step, i) in progressSteps" :key="i" class="progress-step" :class="step.status">
             <div class="step-icon">
               <span v-if="step.status === 'done'">✓</span>
               <span v-else-if="step.status === 'active'" class="spinner"></span>
+              <span v-else-if="step.status === 'failed'">!</span>
               <span v-else>{{ i + 1 }}</span>
             </div>
             <div class="step-info">
               <div class="step-label">{{ step.label }}</div>
+              <div class="step-desc" v-if="step.desc">{{ step.desc }}</div>
               <div class="step-msg" v-if="step.msg">{{ step.msg }}</div>
             </div>
           </div>
         </div>
         <div v-if="progressError" class="progress-error">{{ progressError }}</div>
+        <div v-if="currentWriteRun && (currentWriteRun.status === 'running' || currentWriteRun.status === 'queued')" class="progress-actions">
+          <button class="cancel-btn" :disabled="cancellingRun" @click="cancelCurrentRun">
+            {{ cancellingRun ? '取消中...' : '取消本次写作' }}
+          </button>
+        </div>
+        <div v-if="currentWriteRun && (currentWriteRun.status === 'failed' || currentWriteRun.status === 'cancelled')" class="progress-actions">
+          <button class="cancel-btn" @click="abandonCurrentRun">
+            取消本次写作
+          </button>
+          <button class="cancel-btn" :disabled="retryingRun" @click="retryCurrentRun('restart')">
+            {{ retryingRun ? '重试中...' : '整章重跑' }}
+          </button>
+          <button class="save-btn" :disabled="retryingRun" @click="retryCurrentRun('resume_failed_stage')">
+            {{ retryingRun ? '重试中...' : '从失败阶段继续' }}
+          </button>
+        </div>
         <div v-if="progressStage === 'complete'" class="progress-complete">
           <p>创作完成，最新章节已加入章节列表。</p>
           <button class="save-btn" @click="closeProgress">查看章节</button>
@@ -571,7 +593,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, reactive } from 'vue'
+import { ref, computed, onMounted, onUnmounted, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { marked } from 'marked'
 import yaml from 'js-yaml'
@@ -641,17 +663,22 @@ const expandedFoundations = reactive({})
 const showProgressModal = ref(false)
 const progressStage = ref('')
 const progressError = ref('')
+const currentWriteRun = ref(null)
+const writeRunStages = ref([])
+const cancellingRun = ref(false)
+const retryingRun = ref(false)
+let writeRunPollTimer = null
 const progressSteps = reactive([
-  { key: 'loading', label: '加载书籍信息', status: 'pending', msg: '' },
-  { key: 'context', label: '构建上下文', status: 'pending', msg: '' },
-  { key: 'planning', label: 'Planner 规划本章', status: 'pending', msg: '' },
-  { key: 'writing', label: 'Writer 创作正文', status: 'pending', msg: '' },
-  { key: 'parsing', label: '解析 Writer 输出', status: 'pending', msg: '' },
-  { key: 'auditing', label: 'Auditor 审查结构', status: 'pending', msg: '' },
-  { key: 'revising', label: 'Reviser 修订正文', status: 'pending', msg: '' },
-  { key: 'polishing', label: 'Polisher 润色文稿', status: 'pending', msg: '' },
-  { key: 'extracting', label: '提取真相文件', status: 'pending', msg: '' },
-  { key: 'snapshot', label: '保存章节快照', status: 'pending', msg: '' },
+  { key: 'loading', label: '加载书籍信息', desc: '创建本次写作任务，锁定书籍并准备进入创作链路。', status: 'pending', msg: '' },
+  { key: 'context', label: '构建上下文', desc: '整理当前书籍的状态、设定、伏笔和历史章节信息。', status: 'pending', msg: '' },
+  { key: 'planning', label: 'Planner 规划本章', desc: '生成本章目标、推进点和关键冲突的写作计划。', status: 'pending', msg: '' },
+  { key: 'writing', label: 'Writer 创作正文', desc: '根据规划与上下文生成章节正文和结构化分段结果。', status: 'pending', msg: '' },
+  { key: 'parsing', label: '解析 Writer 输出', desc: '把 Writer 返回结果拆成标题、正文和后续结算所需片段。', status: 'pending', msg: '' },
+  { key: 'auditing', label: 'Auditor 审查结构', desc: '检查章节结构、推进节奏和状态一致性是否合理。', status: 'pending', msg: '' },
+  { key: 'revising', label: 'Reviser 修订正文', desc: '当审查不过时，按问题清单修订正文和状态片段。', status: 'pending', msg: '' },
+  { key: 'polishing', label: 'Polisher 润色文稿', desc: '在不改变事实的前提下优化表达、节奏和可读性。', status: 'pending', msg: '' },
+  { key: 'extracting', label: '提取真相文件', desc: '结算本章带来的状态变化，并抽取人物、事实、伏笔等真相数据。', status: 'pending', msg: '' },
+  { key: 'snapshot', label: '保存章节快照', desc: '统一提交章节和真相状态，并生成用于回滚的快照。', status: 'pending', msg: '' },
 ])
 
 const showChapterModal = ref(false)
@@ -709,6 +736,13 @@ const statusLabels = {
   writing: '写作中',
   paused: '已暂停',
   completed: '已完成',
+}
+const writeRunStatusLabels = {
+  queued: '排队中',
+  running: '运行中',
+  succeeded: '成功',
+  failed: '失败',
+  cancelled: '已取消',
 }
 
 const canWrite = computed(() => {
@@ -808,6 +842,7 @@ function isLatestChapter(ch) {
 }
 
 function leaveBookView() {
+  stopWriteRunPolling()
   selectedBook.value = null
   chapters.value = []
   bookTab.value = 'write'
@@ -817,6 +852,8 @@ function leaveBookView() {
   writeResult.value = null
   showChapterModal.value = false
   viewingChapter.value = null
+  currentWriteRun.value = null
+  writeRunStages.value = []
 }
 
 async function switchTab(nextTab) {
@@ -844,6 +881,10 @@ onMounted(async () => {
   await loadBooks()
 })
 
+onUnmounted(() => {
+  stopWriteRunPolling()
+})
+
 async function loadGenres() {
   const res = await fetch('/api/v1/my-genres', { headers: { 'Authorization': 'Bearer ' + token } })
   if (res.ok) genres.value = await res.json()
@@ -856,6 +897,9 @@ async function openBook(id) {
     selectedBook.value = data.book
     chapters.value = data.chapters
     writeModelID.value = data.book.llm_model_id || 0
+    if (data.book.status === 'writing') {
+      await restoreActiveWriteRun(id)
+    }
   }
 }
 
@@ -909,9 +953,12 @@ function resetProgress() {
   progressSteps.forEach(s => { s.status = 'pending'; s.msg = '' })
   progressStage.value = ''
   progressError.value = ''
+  writeRunStages.value = []
+  currentWriteRun.value = null
 }
 
 async function finalizeWrite(result = null) {
+  await loadBooks()
   if (selectedBook.value?.id) {
     await openBook(selectedBook.value.id)
     await loadTruthFiles()
@@ -939,63 +986,127 @@ async function finalizeWrite(result = null) {
   writeInput.value = ''
 }
 
-async function handleProgressEvent(data) {
-  if (data.stage === 'error') {
-    progressError.value = data.message
-    return true
+function stopWriteRunPolling() {
+  if (writeRunPollTimer) {
+    clearTimeout(writeRunPollTimer)
+    writeRunPollTimer = null
   }
-
-  if (data.stage === 'complete') {
-    await finalizeWrite(data)
-    return true
-  }
-
-  if (data.stage === 'done') {
-    await finalizeWrite()
-    return true
-  }
-
-  const step = progressSteps.find(s => s.key === data.stage)
-  if (step) {
-    const idx = progressSteps.indexOf(step)
-    progressSteps.forEach((s, i) => {
-      if (i < idx) s.status = 'done'
-      else if (i === idx) { s.status = 'active'; s.msg = data.message }
-      else s.status = 'pending'
-    })
-  }
-
-  return false
 }
 
-async function processSSEBuffer(buffer, flushTail = false) {
-  const lines = buffer.split('\n')
-  let remaining = ''
-  if (!flushTail) {
-    remaining = lines.pop() || ''
-  }
+function writeRunStatusLabel(status) {
+  return writeRunStatusLabels[status] || status
+}
 
-  for (const rawLine of lines) {
-    const line = rawLine.trim()
-    if (!line.startsWith('data: ')) continue
-    try {
-      const shouldStop = await handleProgressEvent(JSON.parse(line.slice(6)))
-      if (shouldStop) return { stop: true, remaining: '' }
-    } catch {}
-  }
+function syncProgressFromRun(run, stages) {
+  progressError.value = ''
+  progressStage.value = run?.current_stage || ''
+  const stageMap = new Map(stages.map(stage => [stage.stage, stage]))
 
-  if (flushTail) {
-    const tail = remaining.trim()
-    if (tail.startsWith('data: ')) {
-      try {
-        const shouldStop = await handleProgressEvent(JSON.parse(tail.slice(6)))
-        if (shouldStop) return { stop: true, remaining: '' }
-      } catch {}
+  progressSteps.forEach(step => {
+    if (step.key === 'loading') {
+      step.status = run ? 'done' : 'pending'
+      step.msg = run ? '任务已创建' : ''
+      return
     }
-    return { stop: false, remaining: '' }
-  }
+    if (step.key === 'parsing') {
+      const writingStage = stageMap.get('writing')
+      const auditingStage = stageMap.get('auditing')
+      if (auditingStage || stageMap.get('revising') || stageMap.get('polishing') || stageMap.get('extracting') || stageMap.get('snapshot')) {
+        step.status = 'done'
+        step.msg = '已完成'
+      } else if (writingStage && writingStage.status === 'succeeded') {
+        step.status = 'active'
+        step.msg = '执行中'
+      } else {
+        step.status = 'pending'
+        step.msg = ''
+      }
+      return
+    }
+    const stage = stageMap.get(step.key)
+    if (!stage) {
+      step.status = 'pending'
+      step.msg = ''
+      return
+    }
+    if (stage.status === 'succeeded' || stage.status === 'skipped') {
+      step.status = 'done'
+      step.msg = stage.status === 'skipped' ? '已跳过' : '已完成'
+    } else if (stage.status === 'running') {
+      step.status = 'active'
+      step.msg = '执行中'
+    } else if (stage.status === 'failed' || stage.status === 'cancelled') {
+      step.status = 'failed'
+      step.msg = stage.status === 'cancelled' ? '已取消' : '失败'
+      progressError.value = run?.error_message || stage.error_message || ''
+    } else {
+      step.status = 'pending'
+      step.msg = ''
+    }
+  })
 
-  return { stop: false, remaining }
+  if (run?.status === 'succeeded') {
+    progressStage.value = 'complete'
+    progressSteps.forEach(step => { step.status = 'done' })
+  }
+  if ((run?.status === 'failed' || run?.status === 'cancelled') && !progressError.value) {
+    progressError.value = run?.error_message || (run?.status === 'cancelled' ? '写作已取消' : '写作失败')
+  }
+}
+
+async function refreshWriteRun(runID) {
+  const res = await fetch(`/api/v1/write-runs/${runID}/stages`, {
+    headers: { 'Authorization': 'Bearer ' + token },
+  })
+  if (!res.ok) throw new Error('获取写作任务详情失败')
+  const data = await res.json()
+  currentWriteRun.value = data.run
+  writeRunStages.value = data.stages || []
+  syncProgressFromRun(data.run, writeRunStages.value)
+  return data.run
+}
+
+async function pollWriteRun(runID) {
+  stopWriteRunPolling()
+  try {
+    const run = await refreshWriteRun(runID)
+    if (!run) return
+    if (run.status === 'succeeded') {
+      writing.value = false
+      await finalizeWrite({
+        chapter_number: run.target_chapter,
+        title: currentWriteRun.value?.title || '',
+      })
+      return
+    }
+    if (run.status === 'failed' || run.status === 'cancelled') {
+      writing.value = false
+      await loadBooks()
+      if (selectedBook.value?.id) {
+        await openBook(selectedBook.value.id)
+      }
+      return
+    }
+    writeRunPollTimer = setTimeout(() => {
+      pollWriteRun(runID)
+    }, 1500)
+  } catch (e) {
+    progressError.value = '获取写作进度失败：' + e.message
+    writing.value = false
+  }
+}
+
+async function restoreActiveWriteRun(bookID) {
+  const res = await fetch(`/api/v1/books/${bookID}/write-runs/active`, {
+    headers: { 'Authorization': 'Bearer ' + token },
+  })
+  if (!res.ok) return
+  const data = await res.json()
+  if (!data.run) return
+  showProgressModal.value = true
+  writing.value = true
+  currentWriteRun.value = data.run
+  await pollWriteRun(data.run.id)
 }
 
 async function writeChapter() {
@@ -1003,62 +1114,94 @@ async function writeChapter() {
   writeResult.value = null
   resetProgress()
   showProgressModal.value = true
-  const previousChapterCount = chapters.value.length
 
   try {
-    const body = JSON.stringify({
-      model_id: writeModelID.value,
-      user_input: writeInput.value,
-    })
-
-    const res = await fetch(`/api/v1/books/${selectedBook.value.id}/write`, {
+    const res = await fetch(`/api/v1/books/${selectedBook.value.id}/write-runs`, {
       method: 'POST',
       headers: {
         'Authorization': 'Bearer ' + token,
         'Content-Type': 'application/json',
       },
-      body,
+      body: JSON.stringify({
+      model_id: writeModelID.value,
+      user_input: writeInput.value,
+      }),
     })
 
     if (!res.ok) {
-      const err = await res.json()
+      const err = await res.json().catch(() => ({}))
       progressError.value = err.error || '写作失败'
+      writing.value = false
       return
     }
-
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) {
-        const tail = await processSSEBuffer(buffer, true)
-        if (tail.stop) return
-        break
-      }
-
-      buffer += decoder.decode(value, { stream: true })
-      const processed = await processSSEBuffer(buffer, false)
-      buffer = processed.remaining
-      if (processed.stop) {
-        return
-      }
-    }
-
-    if (!progressError.value && progressStage.value !== 'complete' && selectedBook.value?.id) {
-      await openBook(selectedBook.value.id)
-      await loadTruthFiles()
-      if (chapters.value.length > previousChapterCount) {
-        await finalizeWrite()
-      } else {
-        progressError.value = '写作流已结束，但前端未收到完成事件，请刷新后查看最新章节。'
-      }
-    }
+    const data = await res.json()
+    currentWriteRun.value = data.run
+    await pollWriteRun(data.run.id)
   } catch (e) {
     progressError.value = '网络错误: ' + e.message
-  } finally {
     writing.value = false
+  }
+}
+
+async function cancelCurrentRun() {
+  if (!currentWriteRun.value?.id || cancellingRun.value) return
+  cancellingRun.value = true
+  try {
+    const res = await fetch(`/api/v1/write-runs/${currentWriteRun.value.id}/cancel`, {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token },
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      progressError.value = data.error || '取消写作失败'
+      return
+    }
+    await pollWriteRun(currentWriteRun.value.id)
+  } finally {
+    cancellingRun.value = false
+  }
+}
+
+async function retryCurrentRun(mode) {
+  if (!currentWriteRun.value?.id || retryingRun.value) return
+  retryingRun.value = true
+  progressError.value = ''
+  try {
+    const res = await fetch(`/api/v1/write-runs/${currentWriteRun.value.id}/retry`, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ mode }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      progressError.value = data.error || '重试失败'
+      return
+    }
+    writing.value = true
+    resetProgress()
+    currentWriteRun.value = data.run
+    await pollWriteRun(data.run.id)
+  } finally {
+    retryingRun.value = false
+  }
+}
+
+async function abandonCurrentRun() {
+  stopWriteRunPolling()
+  writing.value = false
+  cancellingRun.value = false
+  retryingRun.value = false
+  currentWriteRun.value = null
+  writeRunStages.value = []
+  progressStage.value = ''
+  progressError.value = ''
+  showProgressModal.value = false
+  await loadBooks()
+  if (selectedBook.value?.id) {
+    await openBook(selectedBook.value.id)
   }
 }
 
@@ -1095,6 +1238,7 @@ async function deleteChapter(ch) {
 }
 
 function closeProgress() {
+  stopWriteRunPolling()
   showProgressModal.value = false
 }
 
@@ -2240,7 +2384,20 @@ function logout() {
   margin-bottom: 24px;
 }
 
-.progress-modal { width: 480px; }
+.progress-modal { width: min(960px, 92vw); }
+.run-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  color: #1e3a8a;
+  font-size: 13px;
+}
 .progress-steps {
   display: flex;
   flex-direction: column;
@@ -2264,6 +2421,10 @@ function logout() {
   background: rgba(22,163,74,0.05);
   border-color: #16a34a;
 }
+.progress-step.failed {
+  background: rgba(220,38,38,0.05);
+  border-color: rgba(220,38,38,0.35);
+}
 .step-icon {
   width: 28px;
   height: 28px;
@@ -2285,6 +2446,10 @@ function logout() {
   background: #16a34a;
   color: #fff;
 }
+.progress-step.failed .step-icon {
+  background: #dc2626;
+  color: #fff;
+}
 .spinner {
   width: 14px;
   height: 14px;
@@ -2296,7 +2461,8 @@ function logout() {
 @keyframes spin { to { transform: rotate(360deg); } }
 .step-info { flex: 1; }
 .step-label { font-size: 13px; color: #1e293b; font-weight: 500; }
-.step-msg { font-size: 12px; color: #64748b; margin-top: 2px; }
+.step-desc { font-size: 12px; color: #64748b; margin-top: 2px; line-height: 1.5; }
+.step-msg { font-size: 12px; color: #2563eb; margin-top: 6px; font-weight: 500; }
 .progress-error {
   margin-top: 16px;
   padding: 12px;
@@ -2305,6 +2471,11 @@ function logout() {
   border-radius: 8px;
   color: #dc2626;
   font-size: 13px;
+}
+.progress-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
 }
 .progress-complete {
   margin-top: 20px;
