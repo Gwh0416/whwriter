@@ -1,6 +1,6 @@
 module whwriter/backend
 
-go 1.23.12
+go 1.26.3
 
 require (
 	github.com/gin-gonic/gin v1.12.0
