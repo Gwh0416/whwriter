@@ -1,6 +1,10 @@
-whwriter
+/whwriter
 
 .idea/
 .vscode/
 *.log
 .DS_Store
+frontend/dist/
+frontend/node_modules/
+mysql_data/
+deploy/.env

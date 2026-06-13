@@ -1,0 +1,843 @@
+package pipeline
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"whwriter/backend/internal/agent"
+	"whwriter/backend/internal/llm"
+	"whwriter/backend/internal/model"
+	"whwriter/backend/internal/repository"
+)
+
+var errWriteRunCancelled = errors.New("write run cancelled")
+
+type StartWriteRunInput struct {
+	BookID      uint
+	ModelID     uint
+	UserInput   string
+	RetryMode   model.ChapterWriteRetryMode
+	ParentRunID *uint
+}
+
+type writeRunState struct {
+	Book            *model.Book
+	ChapterNumber   uint
+	ContextPkg      string
+	Memo            string
+	Title           string
+	Content         string
+	Sections        map[string]string
+	AuditRaw        string
+	AuditResult     auditResult
+	SettleSections  map[string]string
+	SettleDelta     settlerDelta
+	ExtractedTruth  *extractedTruthFiles
+	FinalizedSource string
+}
+
+type stageContextPayload struct {
+	Context string `json:"context"`
+}
+
+type stagePlanningPayload struct {
+	Memo string `json:"memo"`
+}
+
+type stageWritingPayload struct {
+	Title    string            `json:"title"`
+	Content  string            `json:"content"`
+	Sections map[string]string `json:"sections"`
+	Raw      string            `json:"raw"`
+	Source   string            `json:"source"`
+}
+
+type stageAuditingPayload struct {
+	Raw    string      `json:"raw"`
+	Result auditResult `json:"result"`
+}
+
+type stageRevisingPayload struct {
+	Applied  bool              `json:"applied"`
+	Content  string            `json:"content"`
+	Sections map[string]string `json:"sections"`
+	Raw      string            `json:"raw"`
+	Reason   string            `json:"reason,omitempty"`
+}
+
+type stagePolishingPayload struct {
+	Content string `json:"content"`
+}
+
+type stageExtractingPayload struct {
+	SettlerSections map[string]string    `json:"settler_sections"`
+	SettlerDelta    settlerDelta         `json:"settler_delta"`
+	SettlerRaw      string               `json:"settler_raw"`
+	ExtractedTruth  *extractedTruthFiles `json:"extracted_truth"`
+}
+
+type stageSnapshotPayload struct {
+	ChapterNumber uint   `json:"chapter_number"`
+	Title         string `json:"title"`
+	Content       string `json:"content"`
+}
+
+func (p *Pipeline) StartWriteRun(ctx context.Context, in StartWriteRunInput) (*model.ChapterWriteRun, error) {
+	book, err := p.truth.GetBook(in.BookID)
+	if err != nil {
+		return nil, fmt.Errorf("get book: %w", err)
+	}
+	if book.Status == model.BookStatusInitializing || book.Status == model.BookStatusPaused || book.Status == model.BookStatusCompleted {
+		return nil, fmt.Errorf("当前状态不允许继续写作")
+	}
+	active, err := p.truth.GetActiveChapterWriteRun(in.BookID)
+	if err != nil {
+		return nil, fmt.Errorf("get active write run: %w", err)
+	}
+	if active != nil {
+		return nil, fmt.Errorf("该书已有写作任务在进行中")
+	}
+
+	recoverStatus := model.BookStatusActive
+	if book.Status == model.BookStatusOutlining {
+		recoverStatus = model.BookStatusOutlining
+	}
+
+	targetChapter, resumeStage, err := p.resolveTargetChapterAndResumeStage(in.BookID, in.RetryMode, in.ParentRunID)
+	if err != nil {
+		return nil, err
+	}
+
+	locked, err := p.truth.TransitionBookStatus(in.BookID, []model.BookStatus{
+		model.BookStatusOutlining,
+		model.BookStatusActive,
+	}, model.BookStatusWriting)
+	if err != nil {
+		return nil, fmt.Errorf("transition book status: %w", err)
+	}
+	if !locked {
+		return nil, fmt.Errorf("该书已有写作任务在进行中")
+	}
+
+	run := &model.ChapterWriteRun{
+		BookID:           in.BookID,
+		TargetChapter:    targetChapter,
+		RequestedModelID: in.ModelID,
+		UserInput:        in.UserInput,
+		Status:           model.WriteRunQueued,
+		RetryMode:        normalizeWriteRetryMode(in.RetryMode),
+		ParentRunID:      in.ParentRunID,
+		ResumeFromStage:  resumeStage,
+	}
+	if err := p.truth.CreateChapterWriteRun(run); err != nil {
+		_ = p.truth.UpdateBookStatus(in.BookID, recoverStatus)
+		return nil, fmt.Errorf("create write run: %w", err)
+	}
+	if err := p.truth.CreateChapterWriteBaseline(&model.ChapterWriteBaseline{
+		RunID:             run.ID,
+		BookID:            in.BookID,
+		BaseChapterNumber: targetChapter - 1,
+		RecoverStatus:     recoverStatus,
+	}); err != nil {
+		_ = p.truth.UpdateBookStatus(in.BookID, recoverStatus)
+		return nil, fmt.Errorf("create write baseline: %w", err)
+	}
+
+	go p.executeWriteRun(run.ID)
+	return run, nil
+}
+
+func (p *Pipeline) CancelWriteRun(runID uint) error {
+	run, err := p.truth.GetChapterWriteRun(runID)
+	if err != nil {
+		return err
+	}
+	if run == nil {
+		return fmt.Errorf("write run not found")
+	}
+	if run.Status != model.WriteRunQueued && run.Status != model.WriteRunRunning {
+		return fmt.Errorf("当前 run 不可取消")
+	}
+	run.CancelRequested = true
+	if err := p.truth.SaveChapterWriteRun(run); err != nil {
+		return err
+	}
+
+	p.runMu.Lock()
+	cancel := p.runStops[runID]
+	p.runMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	return nil
+}
+
+func (p *Pipeline) RetryWriteRun(ctx context.Context, runID uint, mode model.ChapterWriteRetryMode) (*model.ChapterWriteRun, error) {
+	run, err := p.truth.GetChapterWriteRun(runID)
+	if err != nil {
+		return nil, err
+	}
+	if run == nil {
+		return nil, fmt.Errorf("write run not found")
+	}
+	if run.Status != model.WriteRunFailed && run.Status != model.WriteRunCancelled {
+		return nil, fmt.Errorf("仅失败或取消的 run 支持重试")
+	}
+	parentID := run.ID
+	return p.StartWriteRun(ctx, StartWriteRunInput{
+		BookID:      run.BookID,
+		ModelID:     run.RequestedModelID,
+		UserInput:   run.UserInput,
+		RetryMode:   mode,
+		ParentRunID: &parentID,
+	})
+}
+
+func (p *Pipeline) executeWriteRun(runID uint) {
+	run, err := p.truth.GetChapterWriteRun(runID)
+	if err != nil || run == nil {
+		return
+	}
+	baseline, _ := p.truth.GetChapterWriteBaseline(runID)
+	if baseline == nil {
+		return
+	}
+	book, err := p.truth.GetBook(run.BookID)
+	if err != nil {
+		_ = p.finishWriteRun(run, baseline, model.WriteRunFailed, "", fmt.Sprintf("get book: %v", err))
+		return
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	p.runMu.Lock()
+	p.runStops[runID] = cancel
+	p.runMu.Unlock()
+	defer func() {
+		cancel()
+		p.runMu.Lock()
+		delete(p.runStops, runID)
+		p.runMu.Unlock()
+	}()
+
+	now := time.Now()
+	run.Status = model.WriteRunRunning
+	run.StartedAt = &now
+	if err := p.truth.SaveChapterWriteRun(run); err != nil {
+		_ = p.finishWriteRun(run, baseline, model.WriteRunFailed, "", err.Error())
+		return
+	}
+
+	state := &writeRunState{
+		Book:            book,
+		ChapterNumber:   run.TargetChapter,
+		Sections:        map[string]string{},
+		FinalizedSource: "writer",
+	}
+
+	if run.ParentRunID != nil && normalizeWriteRetryMode(run.RetryMode) == model.WriteRetryResumeFailedStage {
+		if err := p.loadResumeState(*run.ParentRunID, run.ID, run.ResumeFromStage, state); err != nil {
+			_ = p.finishWriteRun(run, baseline, model.WriteRunFailed, "", fmt.Sprintf("resume state: %v", err))
+			return
+		}
+	}
+
+	stageOrder := []model.ChapterWriteStage{
+		model.WriteStageContext,
+		model.WriteStagePlanning,
+		model.WriteStageWriting,
+		model.WriteStageAuditing,
+		model.WriteStageRevising,
+		model.WriteStagePolishing,
+		model.WriteStageExtracting,
+		model.WriteStageSnapshot,
+	}
+	started := false
+	for _, stage := range stageOrder {
+		if !started {
+			started = run.ResumeFromStage == "" || run.ResumeFromStage == stage
+			if !started {
+				continue
+			}
+		}
+		if err := p.assertRunNotCancelled(ctx, run.ID); err != nil {
+			_ = p.finishWriteRun(run, baseline, model.WriteRunCancelled, stage, "写作已取消")
+			return
+		}
+		if err := p.executeStage(ctx, run, state, stage); err != nil {
+			if errors.Is(err, errWriteRunCancelled) || errors.Is(err, context.Canceled) {
+				_ = p.finishWriteRun(run, baseline, model.WriteRunCancelled, stage, "写作已取消")
+				return
+			}
+			_ = p.finishWriteRun(run, baseline, model.WriteRunFailed, stage, err.Error())
+			return
+		}
+	}
+
+	_ = p.finishWriteRun(run, baseline, model.WriteRunSucceeded, model.WriteStageSnapshot, "")
+}
+
+func (p *Pipeline) resolveTargetChapterAndResumeStage(bookID uint, mode model.ChapterWriteRetryMode, parentRunID *uint) (uint, model.ChapterWriteStage, error) {
+	mode = normalizeWriteRetryMode(mode)
+	if parentRunID == nil {
+		chapterNumber, err := p.truth.GetNextChapterNumber(bookID)
+		return chapterNumber, "", err
+	}
+	parentRun, err := p.truth.GetChapterWriteRun(*parentRunID)
+	if err != nil {
+		return 0, "", err
+	}
+	if parentRun == nil || parentRun.BookID != bookID {
+		return 0, "", fmt.Errorf("parent run not found")
+	}
+	if mode == model.WriteRetryRestart {
+		return parentRun.TargetChapter, "", nil
+	}
+	stages, err := p.truth.GetChapterWriteStages(parentRun.ID)
+	if err != nil {
+		return 0, "", err
+	}
+	for _, stage := range stages {
+		if stage.Status == model.WriteStageFailed || stage.Status == model.WriteStageCancelled {
+			return parentRun.TargetChapter, stage.Stage, nil
+		}
+	}
+	return 0, "", fmt.Errorf("parent run has no failed stage to resume")
+}
+
+func normalizeWriteRetryMode(mode model.ChapterWriteRetryMode) model.ChapterWriteRetryMode {
+	if mode == model.WriteRetryResumeFailedStage {
+		return mode
+	}
+	return model.WriteRetryRestart
+}
+
+func (p *Pipeline) assertRunNotCancelled(ctx context.Context, runID uint) error {
+	select {
+	case <-ctx.Done():
+		return errWriteRunCancelled
+	default:
+	}
+	run, err := p.truth.GetChapterWriteRun(runID)
+	if err != nil {
+		return err
+	}
+	if run != nil && run.CancelRequested {
+		return errWriteRunCancelled
+	}
+	return nil
+}
+
+func (p *Pipeline) executeStage(ctx context.Context, run *model.ChapterWriteRun, state *writeRunState, stage model.ChapterWriteStage) error {
+	switch stage {
+	case model.WriteStageContext:
+		return p.executeContextStage(ctx, run, state)
+	case model.WriteStagePlanning:
+		return p.executePlanningStage(ctx, run, state)
+	case model.WriteStageWriting:
+		return p.executeWritingStage(ctx, run, state)
+	case model.WriteStageAuditing:
+		return p.executeAuditingStage(ctx, run, state)
+	case model.WriteStageRevising:
+		return p.executeRevisingStage(ctx, run, state)
+	case model.WriteStagePolishing:
+		return p.executePolishingStage(ctx, run, state)
+	case model.WriteStageExtracting:
+		return p.executeExtractingStage(ctx, run, state)
+	case model.WriteStageSnapshot:
+		return p.executeSnapshotStage(ctx, run, state)
+	default:
+		return fmt.Errorf("unsupported stage: %s", stage)
+	}
+}
+
+func (p *Pipeline) startStage(run *model.ChapterWriteRun, stage model.ChapterWriteStage, inputPayload any, inputSummary string) (*model.ChapterWriteStageRun, error) {
+	now := time.Now()
+	run.CurrentStage = stage
+	if err := p.truth.SaveChapterWriteRun(run); err != nil {
+		return nil, err
+	}
+	payload := marshalStagePayload(inputPayload)
+	stageRun := &model.ChapterWriteStageRun{
+		RunID:        run.ID,
+		Stage:        stage,
+		Attempt:      1,
+		Status:       model.WriteStageRunning,
+		InputSummary: clipText(inputSummary, 400),
+		InputPayload: payload,
+		StartedAt:    &now,
+	}
+	if err := p.truth.CreateChapterWriteStageRun(stageRun); err != nil {
+		return nil, err
+	}
+	return stageRun, nil
+}
+
+func (p *Pipeline) finishStage(stageRun *model.ChapterWriteStageRun, status model.ChapterWriteStageStatus, outputPayload any, outputSummary, errorMessage string) error {
+	now := time.Now()
+	stageRun.Status = status
+	stageRun.OutputSummary = clipText(outputSummary, 400)
+	stageRun.OutputPayload = marshalStagePayload(outputPayload)
+	stageRun.ErrorMessage = errorMessage
+	stageRun.FinishedAt = &now
+	return p.truth.SaveChapterWriteStageRun(stageRun)
+}
+
+func (p *Pipeline) executeContextStage(ctx context.Context, run *model.ChapterWriteRun, state *writeRunState) error {
+	stageRun, err := p.startStage(run, model.WriteStageContext, map[string]any{
+		"chapter_number": state.ChapterNumber,
+	}, fmt.Sprintf("构建第 %d 章上下文", state.ChapterNumber))
+	if err != nil {
+		return err
+	}
+	contextPkg, err := p.buildContext(ctx, run.BookID, state.ChapterNumber)
+	if err != nil {
+		_ = p.finishStage(stageRun, model.WriteStageFailed, nil, "", err.Error())
+		return err
+	}
+	state.ContextPkg = contextPkg
+	return p.finishStage(stageRun, model.WriteStageSucceeded, stageContextPayload{Context: contextPkg}, contextPkg, "")
+}
+
+func (p *Pipeline) executePlanningStage(ctx context.Context, run *model.ChapterWriteRun, state *writeRunState) error {
+	plannerModelID := p.resolveModelID(run.BookID, "planner", run.RequestedModelID)
+	plannerAny, ok := p.registry.Get("planner")
+	if !ok {
+		return fmt.Errorf("planner agent not found")
+	}
+	plannerInput := fmt.Sprintf(plannerBuildInput,
+		state.Book.Title,
+		state.Book.Genre.Name,
+		state.Book.Platform.Name,
+		state.ChapterNumber,
+		state.Book.ChapterWordCount,
+		state.ContextPkg,
+		run.UserInput,
+	)
+	stageRun, err := p.startStage(run, model.WriteStagePlanning, map[string]any{
+		"model_id": plannerModelID,
+		"prompt":   plannerInput,
+	}, plannerInput)
+	if err != nil {
+		return err
+	}
+	memo, err := p.llm.ChatForAgent(ctx, "planner", plannerModelID, plannerAny.SystemPrompt(), []llm.AgentMessage{
+		{Role: "user", Content: plannerInput},
+	}, 0.7)
+	if err != nil {
+		_ = p.finishStage(stageRun, cancelledStageStatus(err), nil, "", err.Error())
+		return err
+	}
+	state.Memo = memo
+	return p.finishStage(stageRun, model.WriteStageSucceeded, stagePlanningPayload{Memo: memo}, memo, "")
+}
+
+func (p *Pipeline) executeWritingStage(ctx context.Context, run *model.ChapterWriteRun, state *writeRunState) error {
+	writerModelID := p.resolveModelID(run.BookID, "writer", run.RequestedModelID)
+	writerAny, ok := p.registry.Get("writer")
+	if !ok {
+		return fmt.Errorf("writer agent not found")
+	}
+	writerAgent, ok := writerAny.(*agent.WriterAgent)
+	if !ok {
+		return fmt.Errorf("invalid writer agent")
+	}
+	systemPrompt := writerAgent.BuildSystemPrompt(agent.WriterInput{
+		Platform:         state.Book.Platform.Name,
+		GenreName:        state.Book.Genre.Name,
+		ChapterWordCount: state.Book.ChapterWordCount,
+		ChapterNumber:    int(state.ChapterNumber),
+		IsGoverned:       true,
+	})
+	writerInput := fmt.Sprintf(writerBuildInput, state.Book.Title, state.ChapterNumber, state.Memo, state.ContextPkg)
+	stageRun, err := p.startStage(run, model.WriteStageWriting, map[string]any{
+		"model_id":      writerModelID,
+		"system_prompt": systemPrompt,
+		"prompt":        writerInput,
+	}, writerInput)
+	if err != nil {
+		return err
+	}
+	rawOutput, err := p.llm.ChatForAgent(ctx, "writer", writerModelID, systemPrompt, []llm.AgentMessage{
+		{Role: "user", Content: writerInput},
+	}, 0.8)
+	if err != nil {
+		_ = p.finishStage(stageRun, cancelledStageStatus(err), nil, "", err.Error())
+		return err
+	}
+	sections := parseSections(rawOutput)
+	title := strings.TrimSpace(sections["CHAPTER_TITLE"])
+	content := strings.TrimSpace(sections["CHAPTER_CONTENT"])
+	if content == "" {
+		fallbackTitle, fallbackContent := fallbackWriterNarrative(rawOutput)
+		if title == "" {
+			title = fallbackTitle
+		}
+		if fallbackContent != "" {
+			content = fallbackContent
+			sections["CHAPTER_TITLE"] = title
+			sections["CHAPTER_CONTENT"] = content
+		}
+	}
+	if title == "" {
+		title = fmt.Sprintf("第%d章", state.ChapterNumber)
+	}
+	if content == "" {
+		_ = p.finishStage(stageRun, model.WriteStageFailed, stageWritingPayload{Title: title, Sections: sections, Raw: rawOutput}, "", "writer 输出缺少 CHAPTER_CONTENT")
+		return fmt.Errorf("writer 输出缺少 CHAPTER_CONTENT，未写入章节正文")
+	}
+	state.Title = title
+	state.Content = strings.TrimSpace(content)
+	state.Sections = sections
+	state.FinalizedSource = "writer"
+	return p.finishStage(stageRun, model.WriteStageSucceeded, stageWritingPayload{
+		Title:    title,
+		Content:  state.Content,
+		Sections: sections,
+		Raw:      rawOutput,
+		Source:   "writer",
+	}, firstNonEmpty(title, state.Content), "")
+}
+
+func (p *Pipeline) executeAuditingStage(ctx context.Context, run *model.ChapterWriteRun, state *writeRunState) error {
+	stageRun, err := p.startStage(run, model.WriteStageAuditing, map[string]any{
+		"memo":    state.Memo,
+		"context": state.ContextPkg,
+		"content": state.Content,
+	}, state.Content)
+	if err != nil {
+		return err
+	}
+	result, raw, err := p.runAuditor(ctx, state.Book, state.ChapterNumber, state.Memo, state.ContextPkg, state.Content, run.RequestedModelID)
+	if err != nil {
+		_ = p.finishStage(stageRun, cancelledStageStatus(err), nil, "", err.Error())
+		return err
+	}
+	state.AuditRaw = raw
+	state.AuditResult = result
+	return p.finishStage(stageRun, model.WriteStageSucceeded, stageAuditingPayload{Raw: raw, Result: result}, raw, "")
+}
+
+func (p *Pipeline) executeRevisingStage(ctx context.Context, run *model.ChapterWriteRun, state *writeRunState) error {
+	stageRun, err := p.startStage(run, model.WriteStageRevising, map[string]any{
+		"audit_result": state.AuditResult,
+		"audit_raw":    state.AuditRaw,
+		"content":      state.Content,
+	}, state.AuditRaw)
+	if err != nil {
+		return err
+	}
+	if state.AuditResult.Passed {
+		return p.finishStage(stageRun, model.WriteStageSkipped, stageRevisingPayload{
+			Applied: false,
+			Content: state.Content,
+			Reason:  "auditor passed",
+		}, "审稿通过，无需修订", "")
+	}
+	revisedContent, revisedSections, reviserRaw, err := p.runReviser(ctx, state.Book, state.ChapterNumber, state.Memo, state.ContextPkg, state.Content, state.AuditRaw, run.RequestedModelID)
+	if err != nil {
+		_ = p.finishStage(stageRun, cancelledStageStatus(err), nil, "", err.Error())
+		return err
+	}
+	state.Content = strings.TrimSpace(revisedContent)
+	if strings.TrimSpace(revisedSections["UPDATED_STATE"]) != "" {
+		state.Sections["UPDATED_STATE"] = revisedSections["UPDATED_STATE"]
+	}
+	if strings.TrimSpace(revisedSections["UPDATED_HOOKS"]) != "" {
+		state.Sections["UPDATED_HOOKS"] = revisedSections["UPDATED_HOOKS"]
+	}
+	if strings.TrimSpace(revisedSections["POST_SETTLEMENT"]) != "" {
+		state.Sections["POST_SETTLEMENT"] = revisedSections["POST_SETTLEMENT"]
+	}
+	state.FinalizedSource = "reviser"
+	return p.finishStage(stageRun, model.WriteStageSucceeded, stageRevisingPayload{
+		Applied:  true,
+		Content:  state.Content,
+		Sections: revisedSections,
+		Raw:      reviserRaw,
+	}, state.Content, "")
+}
+
+func (p *Pipeline) executePolishingStage(ctx context.Context, run *model.ChapterWriteRun, state *writeRunState) error {
+	stageRun, err := p.startStage(run, model.WriteStagePolishing, map[string]any{
+		"content": state.Content,
+	}, state.Content)
+	if err != nil {
+		return err
+	}
+	polishedContent, err := p.runPolisher(ctx, state.Book, state.ChapterNumber, state.Content, run.RequestedModelID)
+	if err != nil {
+		_ = p.finishStage(stageRun, cancelledStageStatus(err), nil, "", err.Error())
+		return err
+	}
+	if strings.TrimSpace(polishedContent) == "" {
+		_ = p.finishStage(stageRun, model.WriteStageFailed, nil, "", "polisher 未产出可用正文")
+		return fmt.Errorf("polisher 未产出可用正文")
+	}
+	state.Content = strings.TrimSpace(polishedContent)
+	state.FinalizedSource = "polisher"
+	return p.finishStage(stageRun, model.WriteStageSucceeded, stagePolishingPayload{Content: state.Content}, state.Content, "")
+}
+
+func (p *Pipeline) executeExtractingStage(ctx context.Context, run *model.ChapterWriteRun, state *writeRunState) error {
+	stageRun, err := p.startStage(run, model.WriteStageExtracting, map[string]any{
+		"title":   state.Title,
+		"content": state.Content,
+	}, state.Content)
+	if err != nil {
+		return err
+	}
+	state.Sections["CHAPTER_TITLE"] = state.Title
+	state.Sections["CHAPTER_CONTENT"] = state.Content
+	writerModelID := p.resolveModelID(run.BookID, "writer", run.RequestedModelID)
+	settleSections, settleDelta, settlerRaw, err := p.settleTruthFiles(ctx, state.Book, state.ChapterNumber, state.Title, state.Content, writerModelID)
+	if err != nil {
+		_ = p.finishStage(stageRun, cancelledStageStatus(err), nil, "", err.Error())
+		return err
+	}
+	for key, value := range settleSections {
+		if strings.TrimSpace(value) != "" {
+			state.Sections[key] = value
+		}
+	}
+	extractedTruth, err := p.extractTruthFiles(
+		ctx,
+		run.BookID,
+		state.ChapterNumber,
+		fmt.Sprintf("章节标题：%s\n\n章节正文：\n%s", state.Title, state.Content),
+		writerModelID,
+	)
+	if err != nil {
+		_ = p.finishStage(stageRun, cancelledStageStatus(err), nil, "", err.Error())
+		return err
+	}
+	if extractedTruth == nil {
+		_ = p.finishStage(stageRun, model.WriteStageFailed, nil, "", "extract truth files returned empty result")
+		return fmt.Errorf("extract truth files returned empty result")
+	}
+	state.SettleSections = settleSections
+	state.SettleDelta = settleDelta
+	state.ExtractedTruth = extractedTruth
+	return p.finishStage(stageRun, model.WriteStageSucceeded, stageExtractingPayload{
+		SettlerSections: settleSections,
+		SettlerDelta:    settleDelta,
+		SettlerRaw:      settlerRaw,
+		ExtractedTruth:  extractedTruth,
+	}, firstNonEmpty(state.Title, state.Content), "")
+}
+
+func (p *Pipeline) executeSnapshotStage(ctx context.Context, run *model.ChapterWriteRun, state *writeRunState) error {
+	stageRun, err := p.startStage(run, model.WriteStageSnapshot, map[string]any{
+		"title":   state.Title,
+		"content": state.Content,
+	}, "提交章节与真相状态")
+	if err != nil {
+		return err
+	}
+	tracePayload := map[string]any{
+		"run_id":           run.ID,
+		"chapter_number":   state.ChapterNumber,
+		"title":            state.Title,
+		"finalized_source": state.FinalizedSource,
+		"writer_sections":  sortedSectionNames(state.Sections),
+		"settler_sections": sortedSectionNames(state.SettleSections),
+		"extract_counts": map[string]any{
+			"characters": len(state.ExtractedTruth.Characters),
+			"facts":      len(state.ExtractedTruth.DurableFacts),
+			"hooks":      len(state.ExtractedTruth.Hooks),
+			"evidence":   len(state.ExtractedTruth.EvidenceNotes),
+		},
+	}
+
+	err = p.truth.WithinTx(func(txTruth repository.TruthFileRepository) error {
+		txPipeline := p.withTruthRepo(txTruth)
+		ch := &model.Chapter{
+			BookID:        run.BookID,
+			ChapterNumber: state.ChapterNumber,
+			Title:         state.Title,
+			Content:       state.Content,
+			WordCount:     uint(len([]rune(state.Content))),
+			Status:        model.ChapterDraft,
+		}
+		for _, artifact := range []*model.RuntimeArtifact{
+			{BookID: run.BookID, ChapterNumber: state.ChapterNumber, ArtifactType: model.ArtifactContext, Content: state.ContextPkg},
+			{BookID: run.BookID, ChapterNumber: state.ChapterNumber, ArtifactType: model.ArtifactIntent, Content: state.Memo},
+			{BookID: run.BookID, ChapterNumber: state.ChapterNumber, ArtifactType: model.ArtifactPlan, Content: state.Sections["PRE_WRITE_CHECK"]},
+		} {
+			if err := txTruth.SaveRuntimeArtifact(artifact); err != nil {
+				return err
+			}
+		}
+		if err := txTruth.SaveChapter(ch); err != nil {
+			return err
+		}
+		if err := txPipeline.applySettlerDelta(run.BookID, state.ChapterNumber, state.Title, state.Sections["POST_SETTLEMENT"], state.SettleDelta); err != nil {
+			return err
+		}
+		if err := txPipeline.persistExtractedTruthFiles(run.BookID, state.ChapterNumber, state.ExtractedTruth, extractionOptions{
+			SaveHooks:   false,
+			SaveSummary: false,
+		}); err != nil {
+			return err
+		}
+		txPipeline.saveChapterSnapshot(run.BookID, state.ChapterNumber, state.Sections)
+		if payload, marshalErr := json.Marshal(tracePayload); marshalErr == nil {
+			if err := txTruth.SaveRuntimeArtifact(&model.RuntimeArtifact{
+				BookID:        run.BookID,
+				ChapterNumber: state.ChapterNumber,
+				ArtifactType:  model.ArtifactTrace,
+				Content:       string(payload),
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		_ = p.finishStage(stageRun, model.WriteStageFailed, nil, "", err.Error())
+		return err
+	}
+	return p.finishStage(stageRun, model.WriteStageSucceeded, stageSnapshotPayload{
+		ChapterNumber: state.ChapterNumber,
+		Title:         state.Title,
+		Content:       state.Content,
+	}, fmt.Sprintf("第%d章已提交", state.ChapterNumber), "")
+}
+
+func cancelledStageStatus(err error) model.ChapterWriteStageStatus {
+	if errors.Is(err, errWriteRunCancelled) || errors.Is(err, context.Canceled) {
+		return model.WriteStageCancelled
+	}
+	return model.WriteStageFailed
+}
+
+func marshalStagePayload(v any) string {
+	if v == nil {
+		return ""
+	}
+	payload, err := json.Marshal(v)
+	if err != nil {
+		return ""
+	}
+	return string(payload)
+}
+
+func (p *Pipeline) finishWriteRun(run *model.ChapterWriteRun, baseline *model.ChapterWriteBaseline, status model.ChapterWriteRunStatus, stage model.ChapterWriteStage, errorMessage string) error {
+	now := time.Now()
+	run.Status = status
+	run.CurrentStage = stage
+	run.ErrorMessage = errorMessage
+	run.FinishedAt = &now
+	if err := p.truth.SaveChapterWriteRun(run); err != nil {
+		return err
+	}
+
+	targetStatus := baseline.RecoverStatus
+	if status == model.WriteRunSucceeded {
+		targetStatus = model.BookStatusActive
+	}
+	return p.truth.UpdateBookStatus(run.BookID, targetStatus)
+}
+
+func (p *Pipeline) loadResumeState(parentRunID, newRunID uint, resumeStage model.ChapterWriteStage, state *writeRunState) error {
+	if resumeStage == "" {
+		return nil
+	}
+	stages, err := p.truth.GetChapterWriteStages(parentRunID)
+	if err != nil {
+		return err
+	}
+	for _, stage := range stages {
+		if stage.Stage == resumeStage {
+			break
+		}
+		if stage.Status != model.WriteStageSucceeded && stage.Status != model.WriteStageSkipped {
+			return fmt.Errorf("stage %s is not reusable", stage.Stage)
+		}
+		cloned := stage
+		cloned.ID = 0
+		cloned.RunID = newRunID
+		cloned.Attempt = 1
+		if err := p.truth.CreateChapterWriteStageRun(&cloned); err != nil {
+			return err
+		}
+		if err := hydrateRunState(stage.Stage, stage.OutputPayload, state); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func hydrateRunState(stage model.ChapterWriteStage, payload string, state *writeRunState) error {
+	if strings.TrimSpace(payload) == "" {
+		return nil
+	}
+	switch stage {
+	case model.WriteStageContext:
+		var out stageContextPayload
+		if err := json.Unmarshal([]byte(payload), &out); err != nil {
+			return err
+		}
+		state.ContextPkg = out.Context
+	case model.WriteStagePlanning:
+		var out stagePlanningPayload
+		if err := json.Unmarshal([]byte(payload), &out); err != nil {
+			return err
+		}
+		state.Memo = out.Memo
+	case model.WriteStageWriting:
+		var out stageWritingPayload
+		if err := json.Unmarshal([]byte(payload), &out); err != nil {
+			return err
+		}
+		state.Title = out.Title
+		state.Content = out.Content
+		state.Sections = out.Sections
+		state.FinalizedSource = out.Source
+	case model.WriteStageAuditing:
+		var out stageAuditingPayload
+		if err := json.Unmarshal([]byte(payload), &out); err != nil {
+			return err
+		}
+		state.AuditRaw = out.Raw
+		state.AuditResult = out.Result
+	case model.WriteStageRevising:
+		var out stageRevisingPayload
+		if err := json.Unmarshal([]byte(payload), &out); err != nil {
+			return err
+		}
+		if out.Applied {
+			state.Content = out.Content
+			for key, value := range out.Sections {
+				if strings.TrimSpace(value) != "" {
+					state.Sections[key] = value
+				}
+			}
+			state.FinalizedSource = "reviser"
+		}
+	case model.WriteStagePolishing:
+		var out stagePolishingPayload
+		if err := json.Unmarshal([]byte(payload), &out); err != nil {
+			return err
+		}
+		state.Content = out.Content
+		state.FinalizedSource = "polisher"
+	case model.WriteStageExtracting:
+		var out stageExtractingPayload
+		if err := json.Unmarshal([]byte(payload), &out); err != nil {
+			return err
+		}
+		state.SettleSections = out.SettlerSections
+		state.SettleDelta = out.SettlerDelta
+		state.ExtractedTruth = out.ExtractedTruth
+		for key, value := range out.SettlerSections {
+			if strings.TrimSpace(value) != "" {
+				state.Sections[key] = value
+			}
+		}
+	}
+	return nil
+}

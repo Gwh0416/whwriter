@@ -1,0 +1,17 @@
+[Unit]
+Description=whwriter backend
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=${APP_DIR}/backend
+ExecStart=${APP_DIR}/backend/whwriter
+Restart=always
+RestartSec=5
+User=www-data
+Group=www-data
+Environment=GIN_MODE=release
+
+[Install]
+WantedBy=multi-user.target
