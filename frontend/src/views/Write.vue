@@ -153,6 +153,9 @@
                     <span class="chapter-status" :class="ch.status">{{ ch.status }}</span>
                   </div>
                   <div v-if="isLatestChapter(ch)" class="chapter-actions">
+                    <button class="action-btn sm" :disabled="writing" @click.stop="rewriteLatestChapter(ch)">
+                      重写本章
+                    </button>
                     <button class="action-btn danger sm" :disabled="deletingChapterNumber === ch.chapter_number" @click.stop="deleteChapter(ch)">
                       {{ deletingChapterNumber === ch.chapter_number ? '删除中...' : '删除本章' }}
                     </button>
@@ -266,8 +269,8 @@
               <div v-if="truthSubTab === 'facts'" class="truth-panel">
                 <div v-if="!truthData.facts?.length" class="no-data">
                   <div class="no-data-icon">📋</div>
-                  <p>暂无长期有效事实</p>
-                  <span>这里只展示会持续影响后续章节的身份、资源、物品、规则和关系。</span>
+                  <p>暂无长期有效设定</p>
+                  <span>这里只展示会持续影响后续章节的身份、资源、物品、规则和关系设定。</span>
                 </div>
                 <div v-else class="fact-groups">
                   <div v-for="group in factGroups" :key="group.key" class="fact-group-card">
@@ -546,7 +549,7 @@
           </button>
         </div>
         <div v-if="progressStage === 'complete'" class="progress-complete">
-          <p>创作完成，最新章节已加入章节列表。</p>
+          <p>{{ currentWriteRun?.run_type === 'rewrite_latest' ? '重写完成，最新章节已更新。' : '创作完成，最新章节已加入章节列表。' }}</p>
           <button class="save-btn" @click="closeProgress">查看章节</button>
         </div>
       </div>
@@ -620,7 +623,7 @@ const truthSubTab = ref('state')
 const truthTabs = [
   { key: 'state', label: '当前状态', icon: '🧭' },
   { key: 'characters', label: '人物', icon: '👤' },
-  { key: 'facts', label: '事实', icon: '📋' },
+  { key: 'facts', label: '设定', icon: '📋' },
   { key: 'hooks', label: '伏笔', icon: '🪝' },
   { key: 'summaries', label: '章节摘要', icon: '📝' },
   { key: 'foundations', label: '基础文件', icon: '📐' },
@@ -676,8 +679,8 @@ const progressSteps = reactive([
   { key: 'parsing', label: '解析 Writer 输出', desc: '把 Writer 返回结果拆成标题、正文和后续结算所需片段。', status: 'pending', msg: '' },
   { key: 'auditing', label: 'Auditor 审查结构', desc: '检查章节结构、推进节奏和状态一致性是否合理。', status: 'pending', msg: '' },
   { key: 'revising', label: 'Reviser 修订正文', desc: '当审查不过时，按问题清单修订正文和状态片段。', status: 'pending', msg: '' },
-  { key: 'polishing', label: 'Polisher 润色文稿', desc: '在不改变事实的前提下优化表达、节奏和可读性。', status: 'pending', msg: '' },
-  { key: 'extracting', label: '提取真相文件', desc: '结算本章带来的状态变化，并抽取人物、事实、伏笔等真相数据。', status: 'pending', msg: '' },
+  { key: 'polishing', label: 'Polisher 润色文稿', desc: '在不改变既有设定的前提下优化表达、节奏和可读性。', status: 'pending', msg: '' },
+  { key: 'extracting', label: '提取真相文件', desc: '结算本章带来的状态变化，并抽取人物、设定、伏笔等真相数据。', status: 'pending', msg: '' },
   { key: 'snapshot', label: '保存章节快照', desc: '统一提交章节和真相状态，并生成用于回滚的快照。', status: 'pending', msg: '' },
 ])
 
@@ -1135,6 +1138,57 @@ async function writeChapter() {
       return
     }
     const data = await res.json()
+    currentWriteRun.value = data.run
+    await pollWriteRun(data.run.id)
+  } catch (e) {
+    progressError.value = '网络错误: ' + e.message
+    writing.value = false
+  }
+}
+
+async function rewriteLatestChapter(ch) {
+  if (!selectedBook.value?.id || !ch?.chapter_number) return
+  if (!isLatestChapter(ch)) {
+    alert('当前只支持重写最后一章')
+    return
+  }
+  if (!canWrite.value) {
+    alert(writeDisabledReason.value || '当前状态不可重写')
+    return
+  }
+  const instruction = window.prompt(`请输入第${ch.chapter_number}章《${ch.title || '未命名'}》的重写要求`, writeInput.value || '')
+  if (instruction === null) return
+  if (!instruction.trim()) {
+    alert('重写最后一章需要填写重写要求')
+    return
+  }
+
+  writing.value = true
+  writeResult.value = null
+  resetProgress()
+  showProgressModal.value = true
+  progressError.value = ''
+
+  try {
+    const res = await fetch(`/api/v1/books/${selectedBook.value.id}/write-runs`, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model_id: writeModelID.value,
+        user_input: instruction.trim(),
+        run_type: 'rewrite_latest',
+      }),
+    })
+
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      progressError.value = data.error || '重写章节失败'
+      writing.value = false
+      return
+    }
     currentWriteRun.value = data.run
     await pollWriteRun(data.run.id)
   } catch (e) {

@@ -20,12 +20,14 @@ type StartWriteRunInput struct {
 	BookID      uint
 	ModelID     uint
 	UserInput   string
+	RunType     model.ChapterWriteRunType
 	RetryMode   model.ChapterWriteRetryMode
 	ParentRunID *uint
 }
 
 type writeRunState struct {
 	Book            *model.Book
+	OriginalChapter *model.Chapter
 	ChapterNumber   uint
 	ContextPkg      string
 	Memo            string
@@ -107,7 +109,12 @@ func (p *Pipeline) StartWriteRun(ctx context.Context, in StartWriteRunInput) (*m
 		recoverStatus = model.BookStatusOutlining
 	}
 
-	targetChapter, resumeStage, err := p.resolveTargetChapterAndResumeStage(in.BookID, in.RetryMode, in.ParentRunID)
+	runType := normalizeWriteRunType(in.RunType)
+	if runType == model.WriteRunTypeRewriteLatest && strings.TrimSpace(in.UserInput) == "" {
+		return nil, fmt.Errorf("重写最后一章需要填写重写要求")
+	}
+
+	targetChapter, resumeStage, err := p.resolveTargetChapterAndResumeStage(in.BookID, runType, in.RetryMode, in.ParentRunID)
 	if err != nil {
 		return nil, err
 	}
@@ -128,6 +135,7 @@ func (p *Pipeline) StartWriteRun(ctx context.Context, in StartWriteRunInput) (*m
 		TargetChapter:    targetChapter,
 		RequestedModelID: in.ModelID,
 		UserInput:        in.UserInput,
+		RunType:          runType,
 		Status:           model.WriteRunQueued,
 		RetryMode:        normalizeWriteRetryMode(in.RetryMode),
 		ParentRunID:      in.ParentRunID,
@@ -192,6 +200,7 @@ func (p *Pipeline) RetryWriteRun(ctx context.Context, runID uint, mode model.Cha
 		BookID:      run.BookID,
 		ModelID:     run.RequestedModelID,
 		UserInput:   run.UserInput,
+		RunType:     run.RunType,
 		RetryMode:   mode,
 		ParentRunID: &parentID,
 	})
@@ -237,6 +246,14 @@ func (p *Pipeline) executeWriteRun(runID uint) {
 		Sections:        map[string]string{},
 		FinalizedSource: "writer",
 	}
+	if normalizeWriteRunType(run.RunType) == model.WriteRunTypeRewriteLatest {
+		original, err := p.truth.GetChapter(run.BookID, run.TargetChapter)
+		if err != nil {
+			_ = p.finishWriteRun(run, baseline, model.WriteRunFailed, "", fmt.Sprintf("load original chapter: %v", err))
+			return
+		}
+		state.OriginalChapter = original
+	}
 
 	if run.ParentRunID != nil && normalizeWriteRetryMode(run.RetryMode) == model.WriteRetryResumeFailedStage {
 		if err := p.loadResumeState(*run.ParentRunID, run.ID, run.ResumeFromStage, state); err != nil {
@@ -280,9 +297,19 @@ func (p *Pipeline) executeWriteRun(runID uint) {
 	_ = p.finishWriteRun(run, baseline, model.WriteRunSucceeded, model.WriteStageSnapshot, "")
 }
 
-func (p *Pipeline) resolveTargetChapterAndResumeStage(bookID uint, mode model.ChapterWriteRetryMode, parentRunID *uint) (uint, model.ChapterWriteStage, error) {
+func (p *Pipeline) resolveTargetChapterAndResumeStage(bookID uint, runType model.ChapterWriteRunType, mode model.ChapterWriteRetryMode, parentRunID *uint) (uint, model.ChapterWriteStage, error) {
 	mode = normalizeWriteRetryMode(mode)
 	if parentRunID == nil {
+		if normalizeWriteRunType(runType) == model.WriteRunTypeRewriteLatest {
+			next, err := p.truth.GetNextChapterNumber(bookID)
+			if err != nil {
+				return 0, "", err
+			}
+			if next <= 1 {
+				return 0, "", fmt.Errorf("当前没有可重写的章节")
+			}
+			return next - 1, "", nil
+		}
 		chapterNumber, err := p.truth.GetNextChapterNumber(bookID)
 		return chapterNumber, "", err
 	}
@@ -313,6 +340,13 @@ func normalizeWriteRetryMode(mode model.ChapterWriteRetryMode) model.ChapterWrit
 		return mode
 	}
 	return model.WriteRetryRestart
+}
+
+func normalizeWriteRunType(runType model.ChapterWriteRunType) model.ChapterWriteRunType {
+	if runType == model.WriteRunTypeRewriteLatest {
+		return runType
+	}
+	return model.WriteRunTypeNormal
 }
 
 func (p *Pipeline) assertRunNotCancelled(ctx context.Context, runID uint) error {
@@ -389,6 +423,7 @@ func (p *Pipeline) finishStage(stageRun *model.ChapterWriteStageRun, status mode
 func (p *Pipeline) executeContextStage(ctx context.Context, run *model.ChapterWriteRun, state *writeRunState) error {
 	stageRun, err := p.startStage(run, model.WriteStageContext, map[string]any{
 		"chapter_number": state.ChapterNumber,
+		"run_type":       normalizeWriteRunType(run.RunType),
 	}, fmt.Sprintf("构建第 %d 章上下文", state.ChapterNumber))
 	if err != nil {
 		return err
@@ -397,6 +432,9 @@ func (p *Pipeline) executeContextStage(ctx context.Context, run *model.ChapterWr
 	if err != nil {
 		_ = p.finishStage(stageRun, model.WriteStageFailed, nil, "", err.Error())
 		return err
+	}
+	if normalizeWriteRunType(run.RunType) == model.WriteRunTypeRewriteLatest && state.OriginalChapter != nil {
+		contextPkg = appendRewriteLatestContext(contextPkg, state.OriginalChapter, run.UserInput)
 	}
 	state.ContextPkg = contextPkg
 	return p.finishStage(stageRun, model.WriteStageSucceeded, stageContextPayload{Context: contextPkg}, contextPkg, "")
@@ -654,6 +692,11 @@ func (p *Pipeline) executeSnapshotStage(ctx context.Context, run *model.ChapterW
 
 	err = p.truth.WithinTx(func(txTruth repository.TruthFileRepository) error {
 		txPipeline := p.withTruthRepo(txTruth)
+		if normalizeWriteRunType(run.RunType) == model.WriteRunTypeRewriteLatest {
+			if err := txTruth.DeleteLatestChapterCascade(run.BookID, state.ChapterNumber); err != nil {
+				return fmt.Errorf("rollback original latest chapter: %w", err)
+			}
+		}
 		ch := &model.Chapter{
 			BookID:        run.BookID,
 			ChapterNumber: state.ChapterNumber,
@@ -705,6 +748,36 @@ func (p *Pipeline) executeSnapshotStage(ctx context.Context, run *model.ChapterW
 		Title:         state.Title,
 		Content:       state.Content,
 	}, fmt.Sprintf("第%d章已提交", state.ChapterNumber), "")
+}
+
+func appendRewriteLatestContext(contextPkg string, original *model.Chapter, userInput string) string {
+	if original == nil {
+		return contextPkg
+	}
+	var b strings.Builder
+	b.WriteString(contextPkg)
+	if !strings.HasSuffix(contextPkg, "\n") {
+		b.WriteString("\n")
+	}
+	b.WriteString("\n## 重写最后一章任务\n")
+	b.WriteString(fmt.Sprintf("- 本次不是写下一章，而是重写第 %d 章《%s》。\n", original.ChapterNumber, strings.TrimSpace(original.Title)))
+	b.WriteString("- 必须保持章节编号不变，基于上一章承接重新写这一章。\n")
+	b.WriteString("- 当前数据库里的状态可能包含旧版本章产生的结果；重写时以用户要求和旧章正文为对照，不要把旧版本章的结算状态当成不可更改事实。\n")
+	if strings.TrimSpace(userInput) != "" {
+		b.WriteString("\n### 用户重写要求\n")
+		b.WriteString(strings.TrimSpace(userInput))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n### 旧版章节正文\n")
+	b.WriteString(fmt.Sprintf("标题：%s\n\n", strings.TrimSpace(original.Title)))
+	content := strings.TrimSpace(original.Content)
+	if len([]rune(content)) > 6000 {
+		runes := []rune(content)
+		content = string(runes[:6000]) + "\n\n（旧版正文过长，已截断展示。）"
+	}
+	b.WriteString(content)
+	b.WriteString("\n")
+	return b.String()
 }
 
 func cancelledStageStatus(err error) model.ChapterWriteStageStatus {

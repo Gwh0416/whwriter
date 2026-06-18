@@ -1,6 +1,7 @@
 import { createApp } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
+import Landing from './views/Landing.vue'
 import Login from './views/Login.vue'
 import Admin from './views/Admin.vue'
 import Write from './views/Write.vue'
@@ -9,12 +10,13 @@ import CreateBook from './views/CreateBook.vue'
 import './style.css'
 
 const routes = [
+  { path: '/', component: Landing },
   { path: '/admin', component: Admin, meta: { requiresAuth: true, role: 'admin' } },
   { path: '/write', component: Write, meta: { requiresAuth: true, role: 'user' } },
   { path: '/create-book', component: CreateBook, meta: { requiresAuth: true, role: 'user' } },
   { path: '/change-password', component: ChangePassword, meta: { requiresAuth: true } },
   { path: '/login', component: Login },
-  { path: '/:pathMatch(.*)*', redirect: '/login' },
+  { path: '/:pathMatch(.*)*', redirect: '/' },
 ]
 
 const router = createRouter({
@@ -35,17 +37,17 @@ router.beforeEach((to, from, next) => {
     return
   }
 
+  if (to.path === '/') {
+    next()
+    return
+  }
+
   if (!token) {
     next('/login')
     return
   }
 
   if (to.meta.role && to.meta.role !== role) {
-    next(role === 'admin' ? '/admin' : '/write')
-    return
-  }
-
-  if (to.path === '/') {
     next(role === 'admin' ? '/admin' : '/write')
     return
   }

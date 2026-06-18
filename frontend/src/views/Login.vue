@@ -1,5 +1,6 @@
 <template>
   <div class="auth-container">
+    <router-link to="/" class="home-link">← 返回首页</router-link>
     <div class="auth-card">
       <div class="logo">
         <h1>文豪写作</h1>
@@ -60,11 +61,12 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, reactive, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
 const router = useRouter()
-const mode = ref('login')
+const route = useRoute()
+const mode = ref(route.query.mode === 'register' ? 'register' : 'login')
 const loginError = ref('')
 const registerError = ref('')
 const registerSuccess = ref('')
@@ -81,6 +83,10 @@ function switchMode(m) {
   registerError.value = ''
   registerSuccess.value = ''
 }
+
+watch(() => route.query.mode, value => {
+  switchMode(value === 'register' ? 'register' : 'login')
+})
 
 async function api(path, method, body) {
   const headers = { 'Content-Type': 'application/json' }
@@ -155,6 +161,16 @@ async function handleRegister() {
   align-items: center;
   justify-content: center;
   background: linear-gradient(135deg, #eff6ff, #dbeafe, #e0e7ff);
+  position: relative;
+}
+.home-link {
+  position: fixed;
+  top: 28px;
+  left: 32px;
+  color: #475569;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 600;
 }
 .auth-card {
   width: 420px;

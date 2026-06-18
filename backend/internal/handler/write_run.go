@@ -41,6 +41,7 @@ func (h *BookHandler) StartWriteRun(c *gin.Context) {
 		BookID:      uint(bookID),
 		ModelID:     req.ModelID,
 		UserInput:   req.UserInput,
+		RunType:     req.RunType,
 		RetryMode:   req.RetryMode,
 		ParentRunID: nonZeroUintPointer(req.ParentRunID),
 	})
