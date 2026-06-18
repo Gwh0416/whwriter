@@ -963,6 +963,42 @@ function handleShowcaseWheel(event) {
   background: #2563eb;
   color: #fff;
 }
+@media (max-width: 1280px) {
+  .feature-title,
+  .feature-text-nowrap,
+  .workflow-title,
+  .section-title-desktop-nowrap {
+    white-space: normal;
+  }
+  .feature-body .feature-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .feature-flow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .memory-tabs {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@media (max-width: 1100px) {
+  .hero,
+  .split,
+  .feature-hero {
+    grid-template-columns: 1fr;
+  }
+  .feature-grid,
+  .workflow-stats,
+  .memory-file-list {
+    grid-template-columns: 1fr 1fr;
+  }
+  .workflow-list {
+    padding-left: 0;
+    margin-top: 8px;
+  }
+  .agent-strip {
+    grid-template-columns: 1fr 1fr;
+  }
+}
 @media (max-width: 900px) {
   .section-title-desktop-nowrap {
     white-space: normal;

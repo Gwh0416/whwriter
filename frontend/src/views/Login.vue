@@ -281,4 +281,34 @@ async function handleRegister() {
 .error-msg { color: #dc2626; font-size: 13px; margin-top: 4px; }
 .success-msg { color: #16a34a; font-size: 13px; margin-top: 4px; }
 .hint { font-size: 12px; color: #94a3b8; margin-top: 4px; }
+
+@media (max-width: 640px) {
+  .auth-container {
+    padding: 24px 16px;
+    align-items: flex-start;
+  }
+  .home-link {
+    position: static;
+    display: inline-block;
+    margin-bottom: 16px;
+  }
+  .auth-card {
+    width: 100%;
+    padding: 28px 20px;
+    border-radius: 14px;
+  }
+  .logo h1 {
+    font-size: 30px;
+    letter-spacing: 2px;
+  }
+  .logo p {
+    letter-spacing: 1px;
+  }
+  .code-row {
+    flex-direction: column;
+  }
+  .code-btn {
+    width: 100%;
+  }
+}
 </style>

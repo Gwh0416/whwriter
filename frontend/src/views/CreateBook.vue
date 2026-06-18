@@ -402,4 +402,35 @@ function logout() {
   font-size: 13px;
   text-align: center;
 }
+
+@media (max-width: 900px) {
+  .topbar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px 20px;
+  }
+  .topbar-left,
+  .topbar-right {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .main-content {
+    padding: 24px 16px;
+  }
+  .form-section {
+    padding: 22px 18px;
+  }
+  .form-row {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .form-actions {
+    flex-direction: column-reverse;
+  }
+  .btn-cancel,
+  .btn-submit {
+    width: 100%;
+  }
+}
 </style>

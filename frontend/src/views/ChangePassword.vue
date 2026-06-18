@@ -244,4 +244,29 @@ function goBack() {
   text-decoration: none;
 }
 .back-link a:hover { color: #2563eb; }
+
+@media (max-width: 640px) {
+  .cp-container {
+    padding: 24px 16px;
+    align-items: flex-start;
+  }
+  .cp-card {
+    width: 100%;
+    padding: 28px 20px;
+    border-radius: 14px;
+  }
+  .logo h1 {
+    font-size: 30px;
+    letter-spacing: 2px;
+  }
+  .logo p {
+    letter-spacing: 1px;
+  }
+  .code-row {
+    flex-direction: column;
+  }
+  .code-btn {
+    width: 100%;
+  }
+}
 </style>

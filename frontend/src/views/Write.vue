@@ -1507,7 +1507,8 @@ function logout() {
   background: #fff;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 .data-table {
   width: 100%;
@@ -2659,4 +2660,112 @@ function logout() {
 }
 .save-btn:hover:not(:disabled) { opacity: 0.9; }
 .save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+@media (max-width: 1100px) {
+  .write-container {
+    flex-direction: column;
+  }
+  .sidebar {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid #e2e8f0;
+    padding: 16px 0;
+  }
+  .sidebar-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 16px 20px 0;
+  }
+  .nav-item {
+    border-left: none;
+    border: 1px solid #e2e8f0;
+    border-radius: 999px;
+    padding: 8px 14px;
+  }
+  .nav-item:hover,
+  .nav-item.active {
+    border-left-color: transparent;
+    border-color: #2563eb;
+    background: rgba(37,99,235,0.08);
+  }
+  .sidebar-footer {
+    padding: 12px 20px 0;
+  }
+  .topbar {
+    padding: 16px 20px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .content {
+    padding: 24px 16px;
+  }
+  .write-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .control-group input {
+    width: 100%;
+  }
+  .book-meta {
+    gap: 16px;
+  }
+  .book-meta-actions {
+    margin-left: 0;
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .state-grid,
+  .snapshot-grid {
+    grid-template-columns: 1fr;
+  }
+  .action-group,
+  .table-actions,
+  .chapter-actions,
+  .progress-actions {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 640px) {
+  .content {
+    padding: 16px 12px;
+  }
+  .empty-state {
+    padding: 48px 16px;
+  }
+  .book-tabs {
+    overflow-x: auto;
+  }
+  .book-tab {
+    white-space: nowrap;
+    flex: 0 0 auto;
+  }
+  .chapter-item {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .chapter-meta {
+    flex-wrap: wrap;
+  }
+  .truth-card,
+  .write-panel,
+  .book-meta {
+    padding: 14px;
+  }
+  .data-table th,
+  .data-table td {
+    padding: 12px 14px;
+    white-space: nowrap;
+  }
+  .modal,
+  .md-modal,
+  .chapter-modal,
+  .progress-modal {
+    width: min(94vw, 960px);
+    padding: 20px 16px;
+  }
+}
 </style>
