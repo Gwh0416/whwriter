@@ -105,6 +105,7 @@ type TruthFileRepository interface {
 	GetChapterWriteRun(runID uint) (*model.ChapterWriteRun, error)
 	ListChapterWriteRuns(bookID uint, limit int) ([]model.ChapterWriteRun, error)
 	GetActiveChapterWriteRun(bookID uint) (*model.ChapterWriteRun, error)
+	ListInterruptedChapterWriteRuns() ([]model.ChapterWriteRun, error)
 	CreateChapterWriteBaseline(b *model.ChapterWriteBaseline) error
 	GetChapterWriteBaseline(runID uint) (*model.ChapterWriteBaseline, error)
 	CreateChapterWriteStageRun(stage *model.ChapterWriteStageRun) error

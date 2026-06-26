@@ -85,6 +85,7 @@ func SetupRouter(c *Container) *gin.Engine {
 			protected.GET("/books/:id/chapters/:chapter", bookHandler.GetChapter)
 			protected.DELETE("/books/:id/chapters/:chapter", bookHandler.DeleteChapter)
 			protected.GET("/books/:id/truth-files", bookHandler.GetTruthFiles)
+			protected.GET("/books/:id/export", bookHandler.ExportBook)
 			protected.GET("/books/:id/chapters/:chapter/artifacts", bookHandler.GetChapterArtifacts)
 			protected.GET("/write-runs/:runID", bookHandler.GetWriteRun)
 			protected.GET("/write-runs/:runID/stages", bookHandler.GetWriteRunStages)

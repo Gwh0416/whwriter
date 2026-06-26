@@ -105,6 +105,8 @@
               <span class="meta-value">{{ chapters.length }} / {{ selectedBook.target_chapters }}</span>
             </div>
             <div class="book-meta-actions">
+              <button class="action-btn" :disabled="exporting" @click="exportBook('txt')">导出 TXT</button>
+              <button class="action-btn" :disabled="exporting" @click="exportBook('md')">导出 MD</button>
               <button class="action-btn danger" :disabled="deletingBookID === selectedBook.id" @click="deleteBook(selectedBook)">
                 {{ deletingBookID === selectedBook.id ? '删除中...' : '删除本书' }}
               </button>
@@ -934,6 +936,35 @@ async function deleteBook(book, evt = null) {
     await loadBooks()
   } finally {
     deletingBookID.value = 0
+  }
+}
+
+async function exportBook(format) {
+  if (!selectedBook.value?.id || exporting.value) return
+  exporting.value = true
+  try {
+    const res = await fetch(`/api/v1/books/${selectedBook.value.id}/export?format=${format}`, {
+      headers: { 'Authorization': 'Bearer ' + token },
+    })
+    if (!res.ok) {
+      let msg = '导出失败'
+      try { const data = await res.json(); msg = data.error || msg } catch (e) {}
+      alert(msg)
+      return
+    }
+    const blob = await res.blob()
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${selectedBook.value.title || 'book'}.${format}`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    window.URL.revokeObjectURL(url)
+  } catch (e) {
+    alert('网络错误：' + e.message)
+  } finally {
+    exporting.value = false
   }
 }
 

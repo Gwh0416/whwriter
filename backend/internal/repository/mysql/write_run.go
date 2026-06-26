@@ -51,6 +51,14 @@ func (r *truthFileRepo) GetActiveChapterWriteRun(bookID uint) (*model.ChapterWri
 	return &run, nil
 }
 
+func (r *truthFileRepo) ListInterruptedChapterWriteRuns() ([]model.ChapterWriteRun, error) {
+	var runs []model.ChapterWriteRun
+	if err := r.db.Where("status IN ?", []model.ChapterWriteRunStatus{model.WriteRunQueued, model.WriteRunRunning}).Find(&runs).Error; err != nil {
+		return nil, err
+	}
+	return runs, nil
+}
+
 func (r *truthFileRepo) CreateChapterWriteBaseline(b *model.ChapterWriteBaseline) error {
 	return r.db.Create(b).Error
 }

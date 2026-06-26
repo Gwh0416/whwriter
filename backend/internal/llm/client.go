@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -91,16 +92,50 @@ func (c *Client) chatWithTimeout(ctx context.Context, agentName string, modelID 
 		}
 	}
 
-	callCtx, cancel := context.WithTimeout(ctx, c.timeoutForAgent(agentName))
-	defer cancel()
+	const maxRetries = 2
+	backoff := 500 * time.Millisecond
 
-	resp, err := chatModel.Generate(callCtx, msgs)
-	if err != nil {
-		return "", fmt.Errorf("generate: %w", err)
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		// Stop immediately if the parent context is already done.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return "", ctxErr
+		}
+
+		// Each attempt gets its own fresh timeout context derived from the
+		// parent ctx so the per-call timeout budget is not shared across retries.
+		attemptCtx, cancel := context.WithTimeout(ctx, c.timeoutForAgent(agentName))
+		resp, err := chatModel.Generate(attemptCtx, msgs)
+		cancel()
+
+		if err == nil {
+			c.recordUsage(llmModel.ID, resp)
+			return resp.Content, nil
+		}
+		lastErr = err
+
+		// Do not retry when the failure is due to context cancellation/deadline.
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
+			break
+		}
+
+		// No retries left.
+		if attempt == maxRetries {
+			break
+		}
+
+		// Wait for the backoff while still respecting context cancellation.
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return "", ctx.Err()
+		case <-timer.C:
+		}
+		backoff *= 2
 	}
-	c.recordUsage(llmModel.ID, resp)
 
-	return resp.Content, nil
+	return "", fmt.Errorf("generate: %w", lastErr)
 }
 
 func (c *Client) recordUsage(modelID uint, resp *schema.Message) {

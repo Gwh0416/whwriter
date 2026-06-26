@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"sort"
 	"strconv"
+	"strings"
 
 	"whwriter/backend/internal/model"
 	"whwriter/backend/internal/pipeline"
@@ -27,6 +30,11 @@ func (h *BookHandler) Create(c *gin.Context) {
 	var req model.CreateBookRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		ErrIncompleteBook.JSON(c)
+		return
+	}
+
+	if req.ChapterWordCount <= 0 || req.TargetChapters <= 0 {
+		ErrJSON(c, http.StatusBadRequest, CodeIncompleteBook, "每章字数与目标章数必须为正数")
 		return
 	}
 
@@ -380,6 +388,77 @@ func (h *BookHandler) GetChapterArtifacts(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"artifacts": artifacts,
 	})
+}
+
+func (h *BookHandler) ExportBook(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		ErrInvalidID.JSON(c)
+		return
+	}
+
+	book, err := h.truthRepo.GetBook(uint(id))
+	if err != nil {
+		ErrInvalidID.JSON(c)
+		return
+	}
+
+	userID := c.GetUint("user_id")
+	if book.UserID != userID {
+		ErrForbidden.JSON(c)
+		return
+	}
+
+	format := c.DefaultQuery("format", "txt")
+	if format != "txt" && format != "md" {
+		format = "txt"
+	}
+
+	chapters, err := h.truthRepo.ListChapters(uint(id))
+	if err != nil {
+		ErrInvalidID.JSON(c)
+		return
+	}
+	if len(chapters) == 0 {
+		ErrJSON(c, http.StatusBadRequest, CodeIncompleteBook, "该书暂无章节，无法导出")
+		return
+	}
+
+	sort.Slice(chapters, func(i, j int) bool {
+		return chapters[i].ChapterNumber < chapters[j].ChapterNumber
+	})
+
+	var builder strings.Builder
+	if format == "md" {
+		builder.WriteString("# " + book.Title + "\n\n")
+		for _, ch := range chapters {
+			title := ch.Title
+			if title == "" {
+				title = "未命名"
+			}
+			fmt.Fprintf(&builder, "## 第%d章 %s\n\n%s\n\n", ch.ChapterNumber, title, ch.Content)
+		}
+	} else {
+		builder.WriteString(book.Title + "\n\n")
+		for _, ch := range chapters {
+			title := ch.Title
+			if title == "" {
+				title = "未命名"
+			}
+			fmt.Fprintf(&builder, "第%d章 %s\n\n%s\n\n", ch.ChapterNumber, title, ch.Content)
+		}
+	}
+
+	ext := "txt"
+	ctype := "text/plain; charset=utf-8"
+	if format == "md" {
+		ext = "md"
+		ctype = "text/markdown; charset=utf-8"
+	}
+	filename := book.Title + "." + ext
+	c.Header("Content-Type", ctype)
+	c.Header("Content-Disposition", "attachment; filename=\"export."+ext+"\"; filename*=UTF-8''"+url.PathEscape(filename))
+	c.String(http.StatusOK, builder.String())
 }
 
 type sseWriter struct {

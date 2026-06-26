@@ -297,6 +297,36 @@ func (p *Pipeline) executeWriteRun(runID uint) {
 	_ = p.finishWriteRun(run, baseline, model.WriteRunSucceeded, model.WriteStageSnapshot, "")
 }
 
+func (p *Pipeline) ReconcileInterruptedRuns() error {
+	runs, err := p.truth.ListInterruptedChapterWriteRuns()
+	if err != nil {
+		return fmt.Errorf("list interrupted write runs: %w", err)
+	}
+	var lastErr error
+	for i := range runs {
+		run := runs[i]
+		baseline, err := p.truth.GetChapterWriteBaseline(run.ID)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if baseline == nil {
+			now := time.Now()
+			run.Status = model.WriteRunFailed
+			run.ErrorMessage = "服务重启，写作任务中断"
+			run.FinishedAt = &now
+			if err := p.truth.SaveChapterWriteRun(&run); err != nil {
+				lastErr = err
+			}
+			continue
+		}
+		if err := p.finishWriteRun(&run, baseline, model.WriteRunFailed, run.CurrentStage, "服务重启，写作任务中断"); err != nil {
+			lastErr = err
+		}
+	}
+	return lastErr
+}
+
 func (p *Pipeline) resolveTargetChapterAndResumeStage(bookID uint, runType model.ChapterWriteRunType, mode model.ChapterWriteRetryMode, parentRunID *uint) (uint, model.ChapterWriteStage, error) {
 	mode = normalizeWriteRetryMode(mode)
 	if parentRunID == nil {

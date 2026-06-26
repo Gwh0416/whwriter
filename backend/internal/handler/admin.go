@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 	"whwriter/backend/internal/model"
 
 	"whwriter/backend/internal/repository"
@@ -365,7 +366,7 @@ func (h *AdminHandler) TestLLMConnection(c *gin.Context) {
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
 
-	client := &http.Client{}
+	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "error": "连接失败: " + err.Error()})

@@ -42,10 +42,22 @@ func Auth(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		c.Set("user_id", uint(claims["user_id"].(float64)))
-		c.Set("email", claims["email"])
-		c.Set("username", claims["username"])
-		c.Set("role", claims["role"])
+		uid, ok := claims["user_id"].(float64)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "无效的令牌"})
+			c.Abort()
+			return
+		}
+		c.Set("user_id", uint(uid))
+		if v, ok := claims["email"].(string); ok {
+			c.Set("email", v)
+		}
+		if v, ok := claims["username"].(string); ok {
+			c.Set("username", v)
+		}
+		if v, ok := claims["role"].(string); ok {
+			c.Set("role", v)
+		}
 
 		c.Next()
 	}
