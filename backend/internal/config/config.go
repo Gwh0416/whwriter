@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -15,12 +16,11 @@ const (
 )
 
 type Config struct {
-	App   AppConfig   `yaml:"app"`
-	MySQL MySQLConfig `yaml:"mysql"`
-	JWT   JWTConfig   `yaml:"jwt"`
-	Admin AdminConfig `yaml:"admin"`
-	SMTP  SMTPConfig  `yaml:"smtp"`
-	LLM   LLMConfig   `yaml:"llm"`
+	App     AppConfig     `yaml:"app"`
+	SQLite  SQLiteConfig  `yaml:"sqlite"`
+	LLM     LLMConfig     `yaml:"llm"`
+	Browser BrowserConfig `yaml:"browser"`
+	Radar   RadarConfig   `yaml:"radar"`
 }
 
 type AppConfig struct {
@@ -29,31 +29,8 @@ type AppConfig struct {
 	Port int    `yaml:"port"`
 }
 
-type MySQLConfig struct {
-	Host     string `yaml:"host"`
-	Port     int    `yaml:"port"`
-	User     string `yaml:"user"`
-	Password string `yaml:"password"`
-	Database string `yaml:"database"`
-	Charset  string `yaml:"charset"`
-}
-
-type JWTConfig struct {
-	Secret string `yaml:"secret"`
-}
-
-type AdminConfig struct {
-	Email    string `yaml:"email"`
-	Username string `yaml:"username"`
-	Password string `yaml:"password"`
-}
-
-type SMTPConfig struct {
-	Host     string `yaml:"host"`
-	Port     int    `yaml:"port"`
-	User     string `yaml:"user"`
-	Password string `yaml:"password"`
-	From     string `yaml:"from"`
+type SQLiteConfig struct {
+	Path string `yaml:"path"`
 }
 
 type LLMConfig struct {
@@ -65,6 +42,19 @@ type LLMConfig struct {
 	ReviserTimeoutSeconds int `yaml:"reviser_timeout_seconds"`
 }
 
+type BrowserConfig struct {
+	CDPURL                     string `yaml:"cdp_url"`
+	ChapterFetchTimeoutSeconds int    `yaml:"chapter_fetch_timeout_seconds"`
+	AutoLaunch                 bool   `yaml:"auto_launch"`
+	ChromeAppName              string `yaml:"chrome_app_name"`
+	UserDataDir                string `yaml:"user_data_dir"`
+}
+
+type RadarConfig struct {
+	FanqieContentAPIURL            string `yaml:"fanqie_content_api_url"`
+	FanqieContentAPITimeoutSeconds int    `yaml:"fanqie_content_api_timeout_seconds"`
+}
+
 func Load(path string) *Config {
 	cfg := &Config{
 		App: AppConfig{
@@ -72,24 +62,8 @@ func Load(path string) *Config {
 			Host: "0.0.0.0",
 			Port: 8080,
 		},
-		MySQL: MySQLConfig{
-			Host:     "127.0.0.1",
-			Port:     3306,
-			User:     "whwriter",
-			Password: "whwriter123",
-			Database: "whwriter",
-			Charset:  "utf8mb4",
-		},
-		JWT: JWTConfig{
-			Secret: "whwriter-jwt-secret-change-in-production",
-		},
-		Admin: AdminConfig{
-			Email:    "admin@whwriter.com",
-			Username: "admin",
-			Password: "Admin123456",
-		},
-		SMTP: SMTPConfig{
-			Port: 587,
+		SQLite: SQLiteConfig{
+			Path: "data/whwriter.db",
 		},
 		LLM: LLMConfig{
 			DefaultTimeoutSeconds: 120,
@@ -98,6 +72,17 @@ func Load(path string) *Config {
 			SettlerTimeoutSeconds: 180,
 			AuditorTimeoutSeconds: 180,
 			ReviserTimeoutSeconds: 180,
+		},
+		Browser: BrowserConfig{
+			CDPURL:                     "http://127.0.0.1:9222",
+			ChapterFetchTimeoutSeconds: 120,
+			AutoLaunch:                 true,
+			ChromeAppName:              "Google Chrome",
+			UserDataDir:                "$HOME/.whwriter-chrome",
+		},
+		Radar: RadarConfig{
+			FanqieContentAPIURL:            "http://101.35.133.34:5000/api/raw_full?item_id={item_id}",
+			FanqieContentAPITimeoutSeconds: 8,
 		},
 	}
 
@@ -122,7 +107,58 @@ func (c *Config) IsDev() bool {
 	return c.App.Mode == ModeDev
 }
 
-func (c *Config) MySQLDSN() string {
-	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=%s&parseTime=True&loc=Local",
-		c.MySQL.User, c.MySQL.Password, c.MySQL.Host, c.MySQL.Port, c.MySQL.Database, c.MySQL.Charset)
+func (c *Config) SQLitePath() string {
+	if c.SQLite.Path == "" {
+		return "data/whwriter.db"
+	}
+	return c.SQLite.Path
+}
+
+func (c *Config) BrowserCDPURL() string {
+	if v := os.Getenv("WHWRITER_BROWSER_CDP_URL"); v != "" {
+		return v
+	}
+	if strings.TrimSpace(c.Browser.CDPURL) == "" {
+		return "http://127.0.0.1:9222"
+	}
+	return c.Browser.CDPURL
+}
+
+func (c *Config) BrowserChapterFetchTimeoutSeconds() int {
+	if c.Browser.ChapterFetchTimeoutSeconds <= 0 {
+		return 120
+	}
+	return c.Browser.ChapterFetchTimeoutSeconds
+}
+
+func (c *Config) BrowserAutoLaunch() bool {
+	return c.Browser.AutoLaunch
+}
+
+func (c *Config) BrowserChromeAppName() string {
+	if strings.TrimSpace(c.Browser.ChromeAppName) == "" {
+		return "Google Chrome"
+	}
+	return strings.TrimSpace(c.Browser.ChromeAppName)
+}
+
+func (c *Config) BrowserUserDataDir() string {
+	if strings.TrimSpace(c.Browser.UserDataDir) == "" {
+		return os.ExpandEnv("$HOME/.whwriter-chrome")
+	}
+	return os.ExpandEnv(strings.TrimSpace(c.Browser.UserDataDir))
+}
+
+func (c *Config) FanqieContentAPIURL() string {
+	if v := os.Getenv("WHWRITER_FANQIE_CONTENT_API_URL"); strings.TrimSpace(v) != "" {
+		return strings.TrimSpace(v)
+	}
+	return strings.TrimSpace(c.Radar.FanqieContentAPIURL)
+}
+
+func (c *Config) FanqieContentAPITimeoutSeconds() int {
+	if c.Radar.FanqieContentAPITimeoutSeconds <= 0 {
+		return 8
+	}
+	return c.Radar.FanqieContentAPITimeoutSeconds
 }

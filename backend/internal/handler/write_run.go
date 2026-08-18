@@ -23,10 +23,6 @@ func (h *BookHandler) StartWriteRun(c *gin.Context) {
 		ErrInvalidID.JSON(c)
 		return
 	}
-	if book.UserID != c.GetUint("user_id") {
-		ErrForbidden.JSON(c)
-		return
-	}
 
 	var req model.StartWriteRunRequest
 	if bindErr := c.ShouldBindJSON(&req); bindErr != nil && !errors.Is(bindErr, io.EOF) {
@@ -41,6 +37,7 @@ func (h *BookHandler) StartWriteRun(c *gin.Context) {
 		BookID:      uint(bookID),
 		ModelID:     req.ModelID,
 		UserInput:   req.UserInput,
+		RunType:     req.RunType,
 		RetryMode:   req.RetryMode,
 		ParentRunID: nonZeroUintPointer(req.ParentRunID),
 	})
@@ -61,13 +58,8 @@ func (h *BookHandler) ListWriteRuns(c *gin.Context) {
 		ErrInvalidID.JSON(c)
 		return
 	}
-	book, err := h.truthRepo.GetBook(uint(bookID))
-	if err != nil {
+	if _, err := h.truthRepo.GetBook(uint(bookID)); err != nil {
 		ErrInvalidID.JSON(c)
-		return
-	}
-	if book.UserID != c.GetUint("user_id") {
-		ErrForbidden.JSON(c)
 		return
 	}
 	runs, err := h.truthRepo.ListChapterWriteRuns(uint(bookID), 10)
@@ -84,13 +76,8 @@ func (h *BookHandler) GetActiveWriteRun(c *gin.Context) {
 		ErrInvalidID.JSON(c)
 		return
 	}
-	book, err := h.truthRepo.GetBook(uint(bookID))
-	if err != nil {
+	if _, err := h.truthRepo.GetBook(uint(bookID)); err != nil {
 		ErrInvalidID.JSON(c)
-		return
-	}
-	if book.UserID != c.GetUint("user_id") {
-		ErrForbidden.JSON(c)
 		return
 	}
 	run, err := h.truthRepo.GetActiveChapterWriteRun(uint(bookID))
@@ -164,13 +151,8 @@ func (h *BookHandler) getOwnedWriteRun(c *gin.Context) (*model.ChapterWriteRun, 
 		ErrInvalidID.JSON(c)
 		return nil, false
 	}
-	book, err := h.truthRepo.GetBook(run.BookID)
-	if err != nil {
+	if _, err := h.truthRepo.GetBook(run.BookID); err != nil {
 		ErrInvalidID.JSON(c)
-		return nil, false
-	}
-	if book.UserID != c.GetUint("user_id") {
-		ErrForbidden.JSON(c)
 		return nil, false
 	}
 	return run, true

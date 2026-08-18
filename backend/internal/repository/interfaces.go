@@ -2,30 +2,12 @@ package repository
 
 import "whwriter/backend/internal/model"
 
-type UserRepository interface {
-	Create(user *model.User) error
-	FindByEmail(email string) (*model.User, error)
-	FindByUsername(username string) (*model.User, error)
-	FindByID(id uint) (*model.User, error)
-	SaveVerificationCode(email, code string) error
-	VerifyCode(email, code string) (bool, error)
-	UpdatePassword(userID uint, passwordHash string) error
-	ListUsers(page, pageSize int) ([]model.User, int64, error)
-	GetStats() (*DashboardStats, error)
-	UpdateStatus(userID uint, status model.UserStatus) error
-	AddBalance(userID uint, amount int64) error
-}
-
 type DashboardStats struct {
-	TotalUsers    int64 `json:"total_users"`
 	ActiveBooks   int64 `json:"active_books"`
 	TotalChapters int64 `json:"total_chapters"`
 }
 
 type GenreRepository interface {
-	ListBuiltin() ([]model.Genre, error)
-	ListByUser(userID uint) ([]model.Genre, error)
-	ListMyGenres(userID uint) ([]model.Genre, error)
 	ListAll() ([]model.Genre, error)
 	FindByID(id uint) (*model.Genre, error)
 	Create(genre *model.Genre) error
@@ -59,18 +41,58 @@ type LLMModelRepository interface {
 	Delete(id uint) error
 	DeleteByConfig(configID uint) error
 	SetDefault(modelID uint) error
-	GetTokenUsage(modelID uint) (int64, error)
-	GetTotalTokenUsage() (int64, error)
-	GetTokenUsageByModel() (map[uint]int64, error)
+	GetTokenUsage(modelID uint) (model.TokenUsageSummary, error)
+	GetTotalTokenUsage() (model.TokenUsageSummary, error)
+	GetTokenUsageByModel() (map[uint]model.TokenUsageSummary, error)
+	GetTokenUsageByAgent() ([]model.AgentTokenUsageSummary, error)
 }
 
 type TokenUsageRepository interface {
 	Record(usage *model.TokenUsage) error
+	LatestID() (uint, error)
+	SummaryAfterID(afterID uint) ([]model.AgentTokenUsageSummary, error)
 }
 
 type BookRepository interface {
 	Create(book *model.Book) error
-	ListByUser(userID uint) ([]model.Book, error)
+	List() ([]model.Book, error)
+}
+
+type RadarRepository interface {
+	ListTaxonomies(platform string) ([]model.RadarTaxonomy, error)
+	ListTags(platform, category string) ([]model.RadarTag, error)
+	SaveTags(tags []model.RadarTag) error
+	SaveBookSetting(setting *model.RadarBookSetting) error
+	GetBookSetting(bookID uint) (*model.RadarBookSetting, error)
+	CreateScanJob(job *model.RadarScanJob) error
+	SaveScanJob(job *model.RadarScanJob) error
+	GetScanJob(jobID uint) (*model.RadarScanJob, error)
+	ListScanJobs(limit int) ([]model.RadarScanJob, error)
+	DeleteScanJob(jobID uint) error
+	SaveSource(source *model.RadarSource) error
+	GetSource(sourceID uint) (*model.RadarSource, error)
+	FindSourceByBookID(platform, sourceBookID string) (*model.RadarSource, error)
+	ListSources(limit int) ([]model.RadarSource, error)
+	ListSourcesByCategory(platform, category string, limit int) ([]model.RadarSource, error)
+	DeleteSourceCascade(sourceID uint) error
+	DeleteSourcesCascade(sourceIDs []uint) error
+	SaveChapterSamples(samples []model.RadarChapterSample) error
+	GetChapterSamples(sourceID uint, limit int) ([]model.RadarChapterSample, error)
+	SaveBookProfile(profile *model.RadarBookProfile) error
+	ListBookProfiles(platform, category string, limit int) ([]model.RadarBookProfile, error)
+	SaveIntroSamples(samples []model.RadarIntroSample) error
+	ListIntroSamples(platform, category string, limit int) ([]model.RadarIntroSample, error)
+	DeleteIntroSamples(ids []uint) error
+	SaveTaxonomyProfile(profile *model.RadarTaxonomyProfile) error
+	ListTaxonomyProfiles(platform, category string) ([]model.RadarTaxonomyProfile, error)
+	ListActiveTaxonomyProfiles(platform, category string, tags []string) ([]model.RadarTaxonomyProfile, error)
+	DeleteTaxonomyProfile(profileID uint) error
+	DeleteTaxonomyProfilesByCategories(platform string, categories []string) error
+	ReplaceRules(platform, category, tagKey string, rules []model.RadarRule) error
+	ListRules(platform, category string, limit int) ([]model.RadarRule, error)
+	ListActiveRules(platform, category string, tags []string, limit int) ([]model.RadarRule, error)
+	DeleteRule(ruleID uint) error
+	DeleteRulesByCategories(platform string, categories []string) error
 }
 
 type TruthFileRepository interface {
@@ -105,6 +127,7 @@ type TruthFileRepository interface {
 	GetChapterWriteRun(runID uint) (*model.ChapterWriteRun, error)
 	ListChapterWriteRuns(bookID uint, limit int) ([]model.ChapterWriteRun, error)
 	GetActiveChapterWriteRun(bookID uint) (*model.ChapterWriteRun, error)
+	ListInterruptedChapterWriteRuns() ([]model.ChapterWriteRun, error)
 	CreateChapterWriteBaseline(b *model.ChapterWriteBaseline) error
 	GetChapterWriteBaseline(runID uint) (*model.ChapterWriteBaseline, error)
 	CreateChapterWriteStageRun(stage *model.ChapterWriteStageRun) error

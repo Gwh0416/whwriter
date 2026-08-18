@@ -21,13 +21,21 @@ func main() {
 		log.Fatalf("failed to initialize container: %v", err)
 	}
 
-	sqlDB, _ := c.DB.DB()
-	defer sqlDB.Close()
+	sqlDB, err := c.DB.DB()
+	if err != nil {
+		log.Printf("warn: failed to get sql.DB handle: %v", err)
+	} else if sqlDB != nil {
+		defer sqlDB.Close()
+	}
+
+	if err := c.Pipeline.ReconcileInterruptedRuns(); err != nil {
+		log.Printf("warn: reconcile interrupted write-runs failed: %v", err)
+	}
 
 	srv := &http.Server{
-		Addr:         cfg.Addr(),
-		Handler:      c.Engine,
-		ReadTimeout:  30 * time.Second,
+		Addr:        cfg.Addr(),
+		Handler:     c.Engine,
+		ReadTimeout: 30 * time.Second,
 		// SSE 写作链路可能持续数分钟，不能使用统一写超时截断流式响应。
 		WriteTimeout: 0,
 		IdleTimeout:  120 * time.Second,

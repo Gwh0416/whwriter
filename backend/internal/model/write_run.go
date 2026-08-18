@@ -30,6 +30,13 @@ const (
 	WriteRetryResumeFailedStage ChapterWriteRetryMode = "resume_failed_stage"
 )
 
+type ChapterWriteRunType string
+
+const (
+	WriteRunTypeNormal        ChapterWriteRunType = "normal"
+	WriteRunTypeRewriteLatest ChapterWriteRunType = "rewrite_latest"
+)
+
 type ChapterWriteStage string
 
 const (
@@ -49,6 +56,7 @@ type ChapterWriteRun struct {
 	TargetChapter    uint                  `json:"target_chapter" gorm:"not null"`
 	RequestedModelID uint                  `json:"requested_model_id"`
 	UserInput        string                `json:"user_input" gorm:"type:longtext"`
+	RunType          ChapterWriteRunType   `json:"run_type" gorm:"size:32;default:normal;index"`
 	Status           ChapterWriteRunStatus `json:"status" gorm:"size:16;index;not null"`
 	CurrentStage     ChapterWriteStage     `json:"current_stage" gorm:"size:32"`
 	RetryMode        ChapterWriteRetryMode `json:"retry_mode" gorm:"size:32"`
@@ -91,6 +99,7 @@ type ChapterWriteBaseline struct {
 type StartWriteRunRequest struct {
 	ModelID     uint                  `json:"model_id"`
 	UserInput   string                `json:"user_input"`
+	RunType     ChapterWriteRunType   `json:"run_type"`
 	RetryMode   ChapterWriteRetryMode `json:"retry_mode"`
 	ParentRunID uint                  `json:"parent_run_id"`
 }

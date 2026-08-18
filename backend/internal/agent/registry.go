@@ -11,12 +11,18 @@ func NewRegistry() *Registry {
 	r.Register(NewFoundationReviewerAgent())
 	r.Register(NewPlannerAgent())
 	r.Register(NewComposerAgent())
+	r.Register(NewScorerAgent())
+	r.Register(NewTruthExtractorAgent())
 	r.Register(NewWriterAgent())
 	r.Register(NewSettlerAgent())
 	r.Register(NewContinuityAuditor())
 	r.Register(NewReviserAgent())
 	r.Register(NewPolisherAgent())
 	r.Register(NewRadarAgent())
+	r.Register(NewRadarClassifierAgent())
+	r.Register(NewRadarAnalyzerAgent())
+	r.Register(NewRadarSynthesizerAgent())
+	r.Register(NewRadarIntroGeneratorAgent())
 
 	return r
 }

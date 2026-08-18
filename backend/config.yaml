@@ -6,33 +6,26 @@ app:
   host: "0.0.0.0"
   port: 8080
 
-mysql:
-  host: "127.0.0.1"
-  port: 3306
-  user: whwriter
-  password: whwriter123
-  database: whwriter
-  charset: utf8mb4
+sqlite:
+  path: "data/whwriter.db"
 
-jwt:
-  secret: "whwriter-jwt-secret-change-in-production"
+browser:
+  # 用于带本机浏览器验证码/登录态抓取番茄章节正文。
+  auto_launch: true
+  chrome_app_name: "Google Chrome"
+  user_data_dir: "$HOME/.whwriter-chrome"
+  cdp_url: "http://127.0.0.1:9222"
+  chapter_fetch_timeout_seconds: 120
 
-admin:
-  email: "admin@whwriter.com"
-  username: "admin"
-  password: "Admin123456"
-
-smtp:
-  host: "smtp.qq.com"            # 例如 smtp.qq.com
-  port: 587
-  user: "2482151827@qq.com"            # 你的邮箱地址
-  password: "focjzcpwzzozebad"        # 邮箱授权码（非登录密码）
-  from: "2482151827@qq.com"            # 发件人地址，通常与 user 相同
+radar:
+  # 第三方番茄章节正文接口。支持 {item_id} 占位符，失效后可替换。
+  fanqie_content_api_url: "http://101.35.133.34:5000/api/raw_full?item_id={item_id}"
+  fanqie_content_api_timeout_seconds: 8
 
 llm:
-  default_timeout_seconds: 300
-  planner_timeout_seconds: 300
+  default_timeout_seconds: 600
+  planner_timeout_seconds: 600
   writer_timeout_seconds: 600
-  settler_timeout_seconds: 300
-  auditor_timeout_seconds: 300
-  reviser_timeout_seconds: 300
+  settler_timeout_seconds: 600
+  auditor_timeout_seconds: 600
+  reviser_timeout_seconds: 600

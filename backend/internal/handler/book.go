@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"sort"
 	"strconv"
+	"strings"
 
 	"whwriter/backend/internal/model"
 	"whwriter/backend/internal/pipeline"
@@ -16,11 +19,16 @@ import (
 type BookHandler struct {
 	bookRepo  repository.BookRepository
 	truthRepo repository.TruthFileRepository
+	radarRepo repository.RadarRepository
 	pipeline  *pipeline.Pipeline
 }
 
-func NewBookHandler(bookRepo repository.BookRepository, truthRepo repository.TruthFileRepository, pl *pipeline.Pipeline) *BookHandler {
-	return &BookHandler{bookRepo: bookRepo, truthRepo: truthRepo, pipeline: pl}
+func NewBookHandler(bookRepo repository.BookRepository, truthRepo repository.TruthFileRepository, pl *pipeline.Pipeline, radarRepo ...repository.RadarRepository) *BookHandler {
+	var rr repository.RadarRepository
+	if len(radarRepo) > 0 {
+		rr = radarRepo[0]
+	}
+	return &BookHandler{bookRepo: bookRepo, truthRepo: truthRepo, radarRepo: rr, pipeline: pl}
 }
 
 func (h *BookHandler) Create(c *gin.Context) {
@@ -30,10 +38,16 @@ func (h *BookHandler) Create(c *gin.Context) {
 		return
 	}
 
-	userID := c.GetUint("user_id")
+	if req.ChapterWordCount <= 0 || req.TargetChapters <= 0 {
+		ErrJSON(c, http.StatusBadRequest, CodeIncompleteBook, "每章字数与目标章数必须为正数")
+		return
+	}
+	if len(req.RadarTags) == 0 {
+		ErrJSON(c, http.StatusBadRequest, CodeIncompleteBook, "请选择至少一个番茄官方标签")
+		return
+	}
 
 	book := &model.Book{
-		UserID:           userID,
 		Title:            req.Title,
 		GenreID:          req.GenreID,
 		PlatformID:       req.PlatformID,
@@ -48,6 +62,23 @@ func (h *BookHandler) Create(c *gin.Context) {
 	if err := h.bookRepo.Create(book); err != nil {
 		ErrBookCreateFailed.JSON(c)
 		return
+	}
+
+	if h.radarRepo != nil {
+		tagsJSON := "[]"
+		if payload, err := json.Marshal(req.RadarTags); err == nil {
+			tagsJSON = string(payload)
+		}
+		primaryTag := strings.TrimSpace(req.RadarCategory)
+		if primaryTag == "" && len(req.RadarTags) > 0 {
+			primaryTag = strings.TrimSpace(req.RadarTags[0])
+		}
+		_ = h.radarRepo.SaveBookSetting(&model.RadarBookSetting{
+			BookID:   book.ID,
+			Platform: model.RadarPlatformFanqie,
+			Category: primaryTag,
+			TagsJSON: tagsJSON,
+		})
 	}
 
 	if err := h.pipeline.InitBook(c.Request.Context(), pipeline.InitBookInput{BookID: book.ID}); err != nil {
@@ -71,8 +102,7 @@ func (h *BookHandler) Create(c *gin.Context) {
 }
 
 func (h *BookHandler) List(c *gin.Context) {
-	userID := c.GetUint("user_id")
-	books, err := h.bookRepo.ListByUser(userID)
+	books, err := h.bookRepo.List()
 	if err != nil {
 		ErrBookListFailed.JSON(c)
 		return
@@ -93,12 +123,6 @@ func (h *BookHandler) Get(c *gin.Context) {
 		return
 	}
 
-	userID := c.GetUint("user_id")
-	if book.UserID != userID {
-		ErrForbidden.JSON(c)
-		return
-	}
-
 	chapters, _ := h.truthRepo.ListChapters(uint(id))
 
 	c.JSON(http.StatusOK, gin.H{
@@ -114,15 +138,8 @@ func (h *BookHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	book, err := h.truthRepo.GetBook(uint(id))
-	if err != nil {
+	if _, err := h.truthRepo.GetBook(uint(id)); err != nil {
 		ErrInvalidID.JSON(c)
-		return
-	}
-
-	userID := c.GetUint("user_id")
-	if book.UserID != userID {
-		ErrForbidden.JSON(c)
 		return
 	}
 
@@ -144,12 +161,6 @@ func (h *BookHandler) WriteChapter(c *gin.Context) {
 	book, err := h.truthRepo.GetBook(uint(id))
 	if err != nil {
 		ErrInvalidID.JSON(c)
-		return
-	}
-
-	userID := c.GetUint("user_id")
-	if book.UserID != userID {
-		ErrForbidden.JSON(c)
 		return
 	}
 
@@ -250,15 +261,8 @@ func (h *BookHandler) GetChapter(c *gin.Context) {
 		return
 	}
 
-	book, err := h.truthRepo.GetBook(uint(bookID))
-	if err != nil {
+	if _, err := h.truthRepo.GetBook(uint(bookID)); err != nil {
 		ErrInvalidID.JSON(c)
-		return
-	}
-
-	userID := c.GetUint("user_id")
-	if book.UserID != userID {
-		ErrForbidden.JSON(c)
 		return
 	}
 
@@ -278,15 +282,8 @@ func (h *BookHandler) DeleteChapter(c *gin.Context) {
 		return
 	}
 
-	book, err := h.truthRepo.GetBook(uint(bookID))
-	if err != nil {
+	if _, err := h.truthRepo.GetBook(uint(bookID)); err != nil {
 		ErrInvalidID.JSON(c)
-		return
-	}
-
-	userID := c.GetUint("user_id")
-	if book.UserID != userID {
-		ErrForbidden.JSON(c)
 		return
 	}
 
@@ -319,15 +316,8 @@ func (h *BookHandler) GetTruthFiles(c *gin.Context) {
 		return
 	}
 
-	book, err := h.truthRepo.GetBook(uint(id))
-	if err != nil {
+	if _, err := h.truthRepo.GetBook(uint(id)); err != nil {
 		ErrInvalidID.JSON(c)
-		return
-	}
-
-	userID := c.GetUint("user_id")
-	if book.UserID != userID {
-		ErrForbidden.JSON(c)
 		return
 	}
 
@@ -363,15 +353,8 @@ func (h *BookHandler) GetChapterArtifacts(c *gin.Context) {
 		return
 	}
 
-	book, err := h.truthRepo.GetBook(uint(bookID))
-	if err != nil {
+	if _, err := h.truthRepo.GetBook(uint(bookID)); err != nil {
 		ErrInvalidID.JSON(c)
-		return
-	}
-
-	userID := c.GetUint("user_id")
-	if book.UserID != userID {
-		ErrForbidden.JSON(c)
 		return
 	}
 
@@ -380,6 +363,71 @@ func (h *BookHandler) GetChapterArtifacts(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"artifacts": artifacts,
 	})
+}
+
+func (h *BookHandler) ExportBook(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		ErrInvalidID.JSON(c)
+		return
+	}
+
+	book, err := h.truthRepo.GetBook(uint(id))
+	if err != nil {
+		ErrInvalidID.JSON(c)
+		return
+	}
+
+	format := c.DefaultQuery("format", "txt")
+	if format != "txt" && format != "md" {
+		format = "txt"
+	}
+
+	chapters, err := h.truthRepo.ListChapters(uint(id))
+	if err != nil {
+		ErrInvalidID.JSON(c)
+		return
+	}
+	if len(chapters) == 0 {
+		ErrJSON(c, http.StatusBadRequest, CodeIncompleteBook, "该书暂无章节，无法导出")
+		return
+	}
+
+	sort.Slice(chapters, func(i, j int) bool {
+		return chapters[i].ChapterNumber < chapters[j].ChapterNumber
+	})
+
+	var builder strings.Builder
+	if format == "md" {
+		builder.WriteString("# " + book.Title + "\n\n")
+		for _, ch := range chapters {
+			title := ch.Title
+			if title == "" {
+				title = "未命名"
+			}
+			fmt.Fprintf(&builder, "## 第%d章 %s\n\n%s\n\n", ch.ChapterNumber, title, ch.Content)
+		}
+	} else {
+		builder.WriteString(book.Title + "\n\n")
+		for _, ch := range chapters {
+			title := ch.Title
+			if title == "" {
+				title = "未命名"
+			}
+			fmt.Fprintf(&builder, "第%d章 %s\n\n%s\n\n", ch.ChapterNumber, title, ch.Content)
+		}
+	}
+
+	ext := "txt"
+	ctype := "text/plain; charset=utf-8"
+	if format == "md" {
+		ext = "md"
+		ctype = "text/markdown; charset=utf-8"
+	}
+	filename := book.Title + "." + ext
+	c.Header("Content-Type", ctype)
+	c.Header("Content-Disposition", "attachment; filename=\"export."+ext+"\"; filename*=UTF-8''"+url.PathEscape(filename))
+	c.String(http.StatusOK, builder.String())
 }
 
 type sseWriter struct {

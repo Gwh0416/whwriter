@@ -20,9 +20,7 @@ DATA_DIR="${DATA_DIR:-/opt/whwriter-data}"
 BACKUP_DIR="${BACKUP_DIR:-/opt/whwriter-backups}"
 DOMAIN="${DOMAIN:-_}"
 APP_PORT="${APP_PORT:-8080}"
-MYSQL_PORT="${MYSQL_PORT:-3306}"
-MYSQL_DATABASE="${MYSQL_DATABASE:-whwriter}"
-MYSQL_USER="${MYSQL_USER:-whwriter}"
+SQLITE_PATH="${SQLITE_PATH:-${DATA_DIR}/whwriter.db}"
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -54,55 +52,16 @@ Path(sys.argv[2]).write_text(src)
 PY
 }
 
-compose_mysql() {
-  docker compose --env-file "${ENV_FILE}" -f "${SCRIPT_DIR}/docker-compose.mysql.yml" "$@"
-}
-
-wait_mysql() {
-  echo "Waiting for MySQL container to become healthy..."
-  for _ in $(seq 1 60); do
-    if compose_mysql exec -T mysql mysqladmin ping -h 127.0.0.1 -uroot -p"${MYSQL_ROOT_PASSWORD}" --silent >/dev/null 2>&1; then
-      echo "MySQL is ready."
-      return 0
-    fi
-    sleep 2
-  done
-  echo "MySQL did not become ready in time." >&2
-  compose_mysql logs mysql >&2 || true
-  exit 1
-}
-
 write_backend_config() {
-  require_env MYSQL_PASSWORD
-  require_env JWT_SECRET
+  mkdir -p "$(dirname "${SQLITE_PATH}")"
   cat > "${PROJECT_DIR}/backend/config.yaml" <<EOF
 app:
   mode: prod
   host: "127.0.0.1"
   port: ${APP_PORT}
 
-mysql:
-  host: "127.0.0.1"
-  port: ${MYSQL_PORT}
-  user: "${MYSQL_USER}"
-  password: "${MYSQL_PASSWORD}"
-  database: "${MYSQL_DATABASE}"
-  charset: utf8mb4
-
-jwt:
-  secret: "${JWT_SECRET}"
-
-admin:
-  email: "${ADMIN_EMAIL:-admin@example.com}"
-  username: "${ADMIN_USERNAME:-admin}"
-  password: "${ADMIN_PASSWORD:-ChangeAdminPassword123}"
-
-smtp:
-  host: "${SMTP_HOST:-}"
-  port: ${SMTP_PORT:-587}
-  user: "${SMTP_USER:-}"
-  password: "${SMTP_PASSWORD:-}"
-  from: "${SMTP_FROM:-}"
+sqlite:
+  path: "${SQLITE_PATH}"
 
 llm:
   default_timeout_seconds: ${LLM_DEFAULT_TIMEOUT_SECONDS:-300}

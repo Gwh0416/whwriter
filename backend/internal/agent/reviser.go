@@ -22,15 +22,7 @@ func (a *ReviserAgent) BuildSystemPrompt(in ReviseInput) string {
 
 	b.WriteString(fmt.Sprintf(`你是一位专业的%s网络小说修稿编辑。你的任务是根据审稿意见对章节进行修正。
 
-PATCHES 和 REVISED_CONTENT 分别处理不同类型的问题——按问题类型选择，不是按偏好：
-
-PATCHES——处理局部文字问题（措辞、对话、AI痕迹、小的连续性错误）。
-  每个 PATCH 引用要修改的原文段落（一句、一段或多段皆可），给出替换文本。未涉及的内容保持原样。
-
-REVISED_CONTENT——处理全章级问题（字数压缩、结构重组、节奏重排、重大剧情偏离）。
-  输出修正后的完整正文。当 Critical 问题包含字数或结构性问题时，必须使用 REVISED_CONTENT——PATCHES 无法压缩或重构整章。
-
-如果 Critical 同时包含局部问题和全章问题，使用 REVISED_CONTENT（一次性解决所有问题）。
+你必须输出修正后的完整章节正文。即使只修改一个局部问题，也要返回完整 REVISED_CONTENT，不允许输出补丁、差异、解释或局部片段。
 
 修稿原则：
 1. 修根因，不做表面润色
@@ -62,17 +54,8 @@ const reviserOutputFormat = `输出格式：
 === FIXED_ISSUES ===
 (List each fix on its own line; if a safe local fix is not possible, explain here)
 
-=== PATCHES ===
-(Output local patches if applicable. Omit this section entirely if using REVISED_CONTENT)
---- PATCH 1 ---
-TARGET_TEXT:
-(Exact quote from the original that identifies the passage to change)
-REPLACEMENT_TEXT:
-(Replacement text for this passage)
---- END PATCH ---
-
 === REVISED_CONTENT ===
-(Full revised chapter content — only when PATCHES cannot solve the problem. Omit this section if using PATCHES)
+(Full revised chapter content. This section is mandatory and must contain the complete chapter body, not a patch.)
 
 === UPDATED_STATE ===
 (Full updated state card)

@@ -5,16 +5,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/lib.sh"
 
-require_cmd docker
 require_cmd go
 require_cmd npm
 require_cmd python3
-require_env MYSQL_ROOT_PASSWORD
-require_env MYSQL_PASSWORD
-require_env JWT_SECRET
 
 echo "==> Prepare directories"
-sudo mkdir -p "${APP_DIR}" "${DATA_DIR}/mysql" "${BACKUP_DIR}"
+sudo mkdir -p "${APP_DIR}" "${DATA_DIR}" "${BACKUP_DIR}"
 
 if [[ "${PROJECT_DIR}" != "${APP_DIR}" ]]; then
   echo "==> Sync project to ${APP_DIR}"
@@ -33,10 +29,6 @@ cd "${PROJECT_DIR}"
 
 echo "==> Write backend config"
 write_backend_config
-
-echo "==> Start Docker MySQL"
-compose_mysql up -d
-wait_mysql
 
 build_backend
 build_frontend

@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -47,7 +48,7 @@ type AgentMessage struct {
 }
 
 func (c *Client) Chat(ctx context.Context, modelID uint, systemPrompt string, messages []AgentMessage, temperature float64) (string, error) {
-	return c.chatWithTimeout(ctx, "", modelID, systemPrompt, messages, temperature)
+	return c.chatWithTimeout(ctx, "chat", modelID, systemPrompt, messages, temperature)
 }
 
 func (c *Client) ChatForAgent(ctx context.Context, agentName string, modelID uint, systemPrompt string, messages []AgentMessage, temperature float64) (string, error) {
@@ -91,33 +92,74 @@ func (c *Client) chatWithTimeout(ctx context.Context, agentName string, modelID 
 		}
 	}
 
-	callCtx, cancel := context.WithTimeout(ctx, c.timeoutForAgent(agentName))
-	defer cancel()
+	const maxRetries = 2
+	backoff := 500 * time.Millisecond
 
-	resp, err := chatModel.Generate(callCtx, msgs)
-	if err != nil {
-		return "", fmt.Errorf("generate: %w", err)
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		// Stop immediately if the parent context is already done.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return "", ctxErr
+		}
+
+		// Each attempt gets its own fresh timeout context derived from the
+		// parent ctx so the per-call timeout budget is not shared across retries.
+		attemptCtx, cancel := context.WithTimeout(ctx, c.timeoutForAgent(agentName))
+		resp, err := chatModel.Generate(attemptCtx, msgs)
+		cancel()
+
+		if err == nil {
+			c.recordUsage(llmModel.ID, agentName, resp)
+			return resp.Content, nil
+		}
+		lastErr = err
+
+		// Do not retry when the failure is due to context cancellation/deadline.
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
+			break
+		}
+
+		// No retries left.
+		if attempt == maxRetries {
+			break
+		}
+
+		// Wait for the backoff while still respecting context cancellation.
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return "", ctx.Err()
+		case <-timer.C:
+		}
+		backoff *= 2
 	}
-	c.recordUsage(llmModel.ID, resp)
 
-	return resp.Content, nil
+	return "", fmt.Errorf("generate: %w", lastErr)
 }
 
-func (c *Client) recordUsage(modelID uint, resp *schema.Message) {
+func (c *Client) recordUsage(modelID uint, agentName string, resp *schema.Message) {
 	if c.tokenUsageRepo == nil || resp == nil || resp.ResponseMeta == nil || resp.ResponseMeta.Usage == nil {
 		return
 	}
 
 	usage := resp.ResponseMeta.Usage
-	if usage.TotalTokens <= 0 && usage.PromptTokens <= 0 && usage.CompletionTokens <= 0 {
+	cachedTokens := usage.PromptTokenDetails.CachedTokens
+	totalTokens := usage.TotalTokens
+	if totalTokens <= 0 {
+		totalTokens = usage.PromptTokens + usage.CompletionTokens
+	}
+	if totalTokens <= 0 && usage.PromptTokens <= 0 && usage.CompletionTokens <= 0 && cachedTokens <= 0 {
 		return
 	}
 
 	_ = c.tokenUsageRepo.Record(&model.TokenUsage{
 		LLMModelID:       modelID,
+		AgentName:        agentName,
 		PromptTokens:     int64(usage.PromptTokens),
 		CompletionTokens: int64(usage.CompletionTokens),
-		TotalTokens:      int64(usage.TotalTokens),
+		CachedTokens:     int64(cachedTokens),
+		TotalTokens:      int64(totalTokens),
 	})
 }
 

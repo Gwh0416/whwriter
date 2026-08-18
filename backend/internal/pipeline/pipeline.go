@@ -23,19 +23,31 @@ type ProgressWriter interface {
 }
 
 type Pipeline struct {
-	llm      *llm.Client
-	truth    repository.TruthFileRepository
-	registry *agent.Registry
-	runMu    sync.Mutex
-	runStops map[uint]context.CancelFunc
+	llm        *llm.Client
+	truth      repository.TruthFileRepository
+	radar      repository.RadarRepository
+	tokenUsage repository.TokenUsageRepository
+	registry   *agent.Registry
+	runMu      sync.Mutex
+	runStops   map[uint]context.CancelFunc
 }
 
-func New(llmClient *llm.Client, truthRepo repository.TruthFileRepository) *Pipeline {
+func New(llmClient *llm.Client, truthRepo repository.TruthFileRepository, radarRepo repository.RadarRepository, tokenUsageRepo ...repository.TokenUsageRepository) *Pipeline {
+	var rr repository.RadarRepository
+	if radarRepo != nil {
+		rr = radarRepo
+	}
+	var tokenUsage repository.TokenUsageRepository
+	if len(tokenUsageRepo) > 0 {
+		tokenUsage = tokenUsageRepo[0]
+	}
 	return &Pipeline{
-		llm:      llmClient,
-		truth:    truthRepo,
-		registry: agent.NewRegistry(),
-		runStops: make(map[uint]context.CancelFunc),
+		llm:        llmClient,
+		truth:      truthRepo,
+		radar:      rr,
+		tokenUsage: tokenUsage,
+		registry:   agent.NewRegistry(),
+		runStops:   make(map[uint]context.CancelFunc),
 	}
 }
 
@@ -277,6 +289,12 @@ func (p *Pipeline) WriteChapter(ctx context.Context, in WriteChapterInput) (*Wri
 		return nil, fmt.Errorf("plan: %w", err)
 	}
 
+	composed, err := p.composeChapterContext(book, chapterNumber, memo, in.UserInput, model.WriteRunTypeNormal, nil)
+	if err != nil {
+		return nil, fmt.Errorf("compose context: %w", err)
+	}
+	contextPkg = composed.ContextText
+
 	if err := emit("writing", "Writer 正在创作正文..."); err != nil {
 		return nil, err
 	}
@@ -353,6 +371,11 @@ func (p *Pipeline) WriteChapter(ctx context.Context, in WriteChapterInput) (*Wri
 			"raw_output":       rawOutput,
 			"finalized_source": "writer",
 		},
+		"composer": map[string]interface{}{
+			"context_package": composed.ContextPackage,
+			"rule_stack":      composed.RuleStack,
+			"trace":           composed.Trace,
+		},
 	}
 
 	if err := emit("auditing", "Auditor 正在审查章节结构与连续性..."); err != nil {
@@ -379,23 +402,45 @@ func (p *Pipeline) WriteChapter(ctx context.Context, in WriteChapterInput) (*Wri
 		if strings.TrimSpace(revisedContent) == "" {
 			return nil, fmt.Errorf("revise: reviser 未产出可用修订结果")
 		}
-		content = strings.TrimSpace(revisedContent)
+		revisedContent = strings.TrimSpace(revisedContent)
+		revisedAudit, revisedAuditRaw, auditErr := p.runAuditor(ctx, book, chapterNumber, memo, contextPkg, revisedContent, in.ModelID)
+		var decision agent.ScoreDecision
+		if auditErr != nil {
+			decision = p.failedRevisionGateDecision(auditResult, "修订稿候选审计失败，保留原稿："+auditErr.Error())
+		} else {
+			var scoreErr error
+			decision, scoreErr = p.decideRevisionGate(auditResult, revisedAudit)
+			if scoreErr != nil {
+				return nil, scoreErr
+			}
+		}
 		tracePayload["reviser"] = map[string]interface{}{
-			"raw_output":    reviserRaw,
-			"sections":      sortedSectionNames(revisedSections),
-			"fixed_issues":  revisedSections["FIXED_ISSUES"],
-			"updated_state": revisedSections["UPDATED_STATE"],
+			"raw_output":          reviserRaw,
+			"sections":            sortedSectionNames(revisedSections),
+			"fixed_issues":        revisedSections["FIXED_ISSUES"],
+			"updated_state":       revisedSections["UPDATED_STATE"],
+			"candidate_audit_raw": revisedAuditRaw,
+			"evaluation":          decision,
 		}
-		if strings.TrimSpace(revisedSections["UPDATED_STATE"]) != "" {
-			sections["UPDATED_STATE"] = revisedSections["UPDATED_STATE"]
+		if decision.Applied {
+			content = revisedContent
+			auditResult = revisedAudit
+			auditRaw = revisedAuditRaw
+			tracePayload["audit"] = map[string]interface{}{
+				"raw_output": auditRaw,
+				"result":     auditResult,
+			}
+			if strings.TrimSpace(revisedSections["UPDATED_STATE"]) != "" {
+				sections["UPDATED_STATE"] = revisedSections["UPDATED_STATE"]
+			}
+			if strings.TrimSpace(revisedSections["UPDATED_HOOKS"]) != "" {
+				sections["UPDATED_HOOKS"] = revisedSections["UPDATED_HOOKS"]
+			}
+			if strings.TrimSpace(revisedSections["POST_SETTLEMENT"]) != "" {
+				sections["POST_SETTLEMENT"] = revisedSections["POST_SETTLEMENT"]
+			}
+			tracePayload["writer"].(map[string]interface{})["finalized_source"] = "reviser"
 		}
-		if strings.TrimSpace(revisedSections["UPDATED_HOOKS"]) != "" {
-			sections["UPDATED_HOOKS"] = revisedSections["UPDATED_HOOKS"]
-		}
-		if strings.TrimSpace(revisedSections["POST_SETTLEMENT"]) != "" {
-			sections["POST_SETTLEMENT"] = revisedSections["POST_SETTLEMENT"]
-		}
-		tracePayload["writer"].(map[string]interface{})["finalized_source"] = "reviser"
 	}
 
 	if err := emit("polishing", "Polisher 正在润色正文..."); err != nil {
@@ -488,6 +533,12 @@ func (p *Pipeline) WriteChapter(ctx context.Context, in WriteChapterInput) (*Wri
 				ArtifactType:  model.ArtifactPlan,
 				Content:       sections["PRE_WRITE_CHECK"],
 			},
+			{
+				BookID:        in.BookID,
+				ChapterNumber: chapterNumber,
+				ArtifactType:  model.ArtifactRuleStack,
+				Content:       marshalArtifactPayload(composed.RuleStack),
+			},
 		} {
 			if err := txTruth.SaveRuntimeArtifact(artifact); err != nil {
 				return err
@@ -507,11 +558,11 @@ func (p *Pipeline) WriteChapter(ctx context.Context, in WriteChapterInput) (*Wri
 
 		txPipeline.saveDebugTrace(in.BookID, chapterNumber, "extract_start", map[string]any{
 			"save_hooks":   false,
-			"save_summary": false,
+			"save_summary": true,
 		})
 		if err := txPipeline.persistExtractedTruthFiles(in.BookID, chapterNumber, extractedTruth, extractionOptions{
 			SaveHooks:   false,
-			SaveSummary: false,
+			SaveSummary: true,
 		}); err != nil {
 			return fmt.Errorf("persist extracted truth files: %w", err)
 		}
@@ -646,6 +697,9 @@ func (p *Pipeline) runReviser(ctx context.Context, book *model.Book, chapterNumb
 ## 上下文
 %s
 
+## 硬性输出要求
+必须输出完整的 === REVISED_CONTENT ===，内容为修订后的完整章节正文。不要输出 PATCH、diff、局部替换或解释文本。
+
 ## 当前正文
 %s`, book.Title, chapterNumber, auditRaw, memo, contextPkg, content)
 
@@ -684,7 +738,7 @@ func (p *Pipeline) runPolisher(ctx context.Context, book *model.Book, chapterNum
 ## 正文
 %s`, book.Title, chapterNumber, content)
 
-	raw, err := p.llm.Chat(ctx, modelID, polisherAny.SystemPrompt(), []llm.AgentMessage{
+	raw, err := p.llm.ChatForAgent(ctx, "polisher", modelID, polisherAny.SystemPrompt(), []llm.AgentMessage{
 		{Role: "user", Content: userPrompt},
 	}, 0.2)
 	if err != nil {
@@ -726,7 +780,7 @@ func (p *Pipeline) runArchitect(ctx context.Context, book *model.Book, modelID u
 
 请严格按 system prompt 中的 5 个 SECTION 输出。`, book.Title, defaultString(book.Description, "暂无额外简介，请根据题材与平台风格起盘。"), defaultString(book.Platform.StyleGuide, "保持平台主流网文可读性与节奏感。"))
 
-	return p.llm.Chat(ctx, modelID, systemPrompt, []llm.AgentMessage{
+	return p.llm.ChatForAgent(ctx, "architect", modelID, systemPrompt, []llm.AgentMessage{
 		{Role: "user", Content: userPrompt},
 	}, 0.7)
 }
@@ -804,11 +858,13 @@ func (p *Pipeline) validateSettlerDelta(bookID uint, chapterNumber uint, title, 
 		return fmt.Errorf("delta is nil")
 	}
 	if delta.Chapter > 0 && delta.Chapter != chapterNumber {
-		return fmt.Errorf("chapter mismatch: got %d want %d", delta.Chapter, chapterNumber)
+		delta.Notes = appendSettlerNote(delta.Notes, fmt.Sprintf("sanitize: chapter corrected from %d to %d", delta.Chapter, chapterNumber))
 	}
+	delta.Chapter = chapterNumber
 	if delta.ChapterSummary.Chapter > 0 && delta.ChapterSummary.Chapter != chapterNumber {
-		return fmt.Errorf("chapter summary mismatch: got %d want %d", delta.ChapterSummary.Chapter, chapterNumber)
+		delta.Notes = appendSettlerNote(delta.Notes, fmt.Sprintf("sanitize: chapterSummary.chapter corrected from %d to %d", delta.ChapterSummary.Chapter, chapterNumber))
 	}
+	delta.ChapterSummary.Chapter = chapterNumber
 
 	patch, err := p.normalizeSettlerStatePatch(bookID, delta.CurrentStatePatch)
 	if err != nil {
@@ -816,24 +872,11 @@ func (p *Pipeline) validateSettlerDelta(bookID uint, chapterNumber uint, title, 
 	}
 	delta.CurrentStatePatch = patch
 
-	if err := validateSettlerHookOps(delta.HookOps); err != nil {
-		return err
-	}
-	if err := validateSettlerHookCandidates(delta.NewHookCandidates); err != nil {
-		return err
-	}
-	if err := validateSettlerNotes(delta.Notes); err != nil {
-		return err
-	}
-	if err := validateSettlerChapterSummary(title, delta.ChapterSummary); err != nil {
-		return err
-	}
-	if err := validateSettlerGrounding(content, delta); err != nil {
-		return err
-	}
-	if !settlerDeltaHasSignal(*delta) {
-		return fmt.Errorf("delta has no effective updates")
-	}
+	delta.HookOps = sanitizeSettlerHookOps(delta.HookOps)
+	delta.NewHookCandidates = sanitizeSettlerHookCandidates(delta.NewHookCandidates)
+	delta.Notes = sanitizeSettlerNotes(delta.Notes)
+	delta.ChapterSummary = sanitizeSettlerChapterSummary(title, chapterNumber, delta.ChapterSummary)
+	p.sanitizeSettlerGrounding(content, delta)
 	return nil
 }
 
@@ -853,14 +896,14 @@ func (p *Pipeline) normalizeSettlerStatePatch(bookID uint, rawPatch map[string]s
 	for key, value := range rawPatch {
 		key = strings.TrimSpace(key)
 		if _, ok := allowedCurrentStatePatchKeys[key]; !ok {
-			return nil, fmt.Errorf("unsupported currentStatePatch key: %s", key)
+			continue
 		}
 		value = strings.TrimSpace(value)
 		if value == "" {
 			continue
 		}
 		if isMetaPlaceholder(value) {
-			return nil, fmt.Errorf("state patch %s contains placeholder-like value: %s", key, value)
+			continue
 		}
 		if current != nil && sameStateValue(current, key, value) {
 			continue
@@ -915,6 +958,46 @@ func validateSettlerHookOps(ops settlerHookOps) error {
 	return nil
 }
 
+func sanitizeSettlerHookOps(ops settlerHookOps) settlerHookOps {
+	seenUpsert := make(map[string]struct{}, len(ops.Upsert))
+	clean := settlerHookOps{
+		Upsert:  make([]settlerHookOp, 0, len(ops.Upsert)),
+		Mention: uniqueNonEmptyStrings(ops.Mention),
+		Resolve: uniqueNonEmptyStrings(ops.Resolve),
+		Defer:   uniqueNonEmptyStrings(ops.Defer),
+	}
+	resolveSet := make(map[string]struct{}, len(clean.Resolve))
+	for _, hookID := range clean.Resolve {
+		resolveSet[hookID] = struct{}{}
+	}
+	filteredDefer := clean.Defer[:0]
+	for _, hookID := range clean.Defer {
+		if _, resolved := resolveSet[hookID]; resolved {
+			continue
+		}
+		filteredDefer = append(filteredDefer, hookID)
+	}
+	clean.Defer = filteredDefer
+
+	for _, upsert := range ops.Upsert {
+		upsert.HookID = strings.TrimSpace(upsert.HookID)
+		if upsert.HookID == "" {
+			continue
+		}
+		if _, ok := seenUpsert[upsert.HookID]; ok {
+			continue
+		}
+		seenUpsert[upsert.HookID] = struct{}{}
+		upsert.Type = string(normalizeHookType(upsert.Type))
+		upsert.Status = string(normalizeHookStatus(upsert.Status))
+		upsert.PayoffTiming = string(normalizePayoffTiming(upsert.PayoffTiming))
+		upsert.Notes = sanitizeSettlerText(upsert.Notes)
+		upsert.ExpectedPayoff = sanitizeSettlerText(upsert.ExpectedPayoff)
+		clean.Upsert = append(clean.Upsert, upsert)
+	}
+	return clean
+}
+
 func validateSettlerHookCandidates(candidates []settlerHookCandidate) error {
 	for i, candidate := range candidates {
 		if !isRecognizedHookType(candidate.Type) {
@@ -933,6 +1016,21 @@ func validateSettlerHookCandidates(candidates []settlerHookCandidate) error {
 	return nil
 }
 
+func sanitizeSettlerHookCandidates(candidates []settlerHookCandidate) []settlerHookCandidate {
+	clean := make([]settlerHookCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		candidate.Type = string(normalizeHookType(candidate.Type))
+		candidate.PayoffTiming = string(normalizePayoffTiming(candidate.PayoffTiming))
+		candidate.ExpectedPayoff = sanitizeSettlerText(candidate.ExpectedPayoff)
+		candidate.Notes = sanitizeSettlerText(candidate.Notes)
+		if strings.TrimSpace(candidate.ExpectedPayoff) == "" && strings.TrimSpace(candidate.Notes) == "" {
+			continue
+		}
+		clean = append(clean, candidate)
+	}
+	return clean
+}
+
 func validateSettlerNotes(notes []string) error {
 	for i, note := range notes {
 		note = strings.TrimSpace(note)
@@ -944,6 +1042,18 @@ func validateSettlerNotes(notes []string) error {
 		}
 	}
 	return nil
+}
+
+func sanitizeSettlerNotes(notes []string) []string {
+	clean := make([]string, 0, len(notes))
+	for _, note := range notes {
+		note = sanitizeSettlerText(note)
+		if note == "" {
+			continue
+		}
+		clean = append(clean, note)
+	}
+	return uniqueNonEmptyStrings(clean)
 }
 
 func validateSettlerChapterSummary(title string, summary settlerChapterSummary) error {
@@ -967,6 +1077,22 @@ func validateSettlerChapterSummary(title string, summary settlerChapterSummary) 
 		}
 	}
 	return nil
+}
+
+func sanitizeSettlerChapterSummary(title string, chapterNumber uint, summary settlerChapterSummary) settlerChapterSummary {
+	summary.Chapter = chapterNumber
+	if strings.TrimSpace(title) != "" {
+		summary.Title = strings.TrimSpace(title)
+	} else {
+		summary.Title = sanitizeSettlerText(summary.Title)
+	}
+	summary.Characters = sanitizeSettlerText(summary.Characters)
+	summary.Events = sanitizeSettlerText(summary.Events)
+	summary.State = sanitizeSettlerText(summary.State)
+	summary.Hook = sanitizeSettlerText(summary.Hook)
+	summary.Mood = sanitizeSettlerText(summary.Mood)
+	summary.Type = sanitizeSettlerText(summary.Type)
+	return summary
 }
 
 func validateSettlerGrounding(content string, delta *settlerDelta) error {
@@ -1003,6 +1129,72 @@ func validateSettlerGrounding(content string, delta *settlerDelta) error {
 		}
 	}
 	return nil
+}
+
+func (p *Pipeline) sanitizeSettlerGrounding(content string, delta *settlerDelta) {
+	if delta == nil {
+		return
+	}
+	body := normalizeGroundingText(content)
+	if body == "" {
+		return
+	}
+	for key, value := range delta.CurrentStatePatch {
+		if value == "" {
+			continue
+		}
+		if !hasStateGroundingSignal(key, body, value) && !softStatePatchAllowed(key) {
+			delete(delta.CurrentStatePatch, key)
+			delta.Notes = appendSettlerNote(delta.Notes, fmt.Sprintf("sanitize: dropped weakly grounded state patch %s", key))
+		}
+	}
+}
+
+func softStatePatchAllowed(key string) bool {
+	switch key {
+	case "currentGoal", "protagonistState", "currentConflict", "currentAlliances":
+		return true
+	default:
+		return false
+	}
+}
+
+func sanitizeSettlerText(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || isMetaPlaceholder(raw) {
+		return ""
+	}
+	return raw
+}
+
+func appendSettlerNote(notes []string, note string) []string {
+	note = strings.TrimSpace(note)
+	if note == "" {
+		return notes
+	}
+	for _, existing := range notes {
+		if strings.TrimSpace(existing) == note {
+			return notes
+		}
+	}
+	return append(notes, note)
+}
+
+func uniqueNonEmptyStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	clean := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		clean = append(clean, value)
+	}
+	return clean
 }
 
 func settlerDeltaHasSignal(delta settlerDelta) bool {
@@ -1524,29 +1716,21 @@ func (p *Pipeline) upsertFoundation(bookID uint, fileType model.FoundationFileTy
 }
 
 func (p *Pipeline) extractTruthFiles(ctx context.Context, bookID uint, chapterNumber uint, rawOutput string, modelID uint) (*extractedTruthFiles, error) {
-	extractPrompt := `你是这本小说的设定管理员。请从以下章节输出中提取关键信息，以JSON格式返回。
+	extractorAny, ok := p.registry.Get("truth_extractor")
+	if !ok {
+		return nil, fmt.Errorf("truth_extractor agent not found")
+	}
+	extractor, ok := extractorAny.(*agent.TruthExtractorAgent)
+	if !ok {
+		return nil, fmt.Errorf("invalid truth_extractor agent")
+	}
+	bookTitle := ""
+	if book, err := p.truth.GetBook(bookID); err == nil && book != nil {
+		bookTitle = book.Title
+	}
+	extractPrompt := extractor.BuildUserPrompt(bookTitle, chapterNumber, rawOutput)
 
-## 输出格式
-{
-  "characters": [{"name": "角色名", "role_type": "protagonist|major|minor", "profile": "一句话简介"}],
-  "durable_facts": [{"subject": "主体", "predicate": "关系/属性", "object": "客体/值", "category": "identity|resource|item|rule|relationship"}],
-  "hooks": [{"hook_id": "H01", "type": "plot|conflict|item|mystery|character", "description": "伏笔描述"}],
-  "evidence_notes": [{"title": "线索标题", "kind": "clue|document|observation", "content": "章节中出现的具体细节、证据或文本内容"}],
-  "summary": {"title": "章节标题", "characters_appeared": "角色1,角色2", "key_events": "关键事件", "state_changes": "状态变化", "hook_activity": "伏笔动态", "mood": "情绪基调", "chapter_type": "过渡|冲突|高潮|收束"}
-}
-
-## durable_facts 规则
-- 这里只保留中长期有效、未来多章仍应成立的事实
-- 只允许 5 类：identity、resource、item、rule、relationship
-- 当前状态类信息（当前位置、主角状态、当前目标、当前限制、当前敌我、当前冲突）不要写入 durable_facts，这些由状态卡单独维护
-- 章节细节类信息不要写入 durable_facts，例如：某页古书的具体内容、屋内气味、窗外脚步声、光线、某句原文、暂时性观察
-- 这类细节若有价值，应写入 evidence_notes；若形成持续未解问题，应写入 hooks
-- 如果无法确定一条信息能持续至少 3 章，就不要放进 durable_facts
-
-## 章节输出
-` + rawOutput
-
-	result, err := p.llm.Chat(ctx, modelID, "你是小说设定提取专家，只返回JSON。", []llm.AgentMessage{
+	result, err := p.llm.ChatForAgent(ctx, extractor.Name(), modelID, extractor.SystemPrompt(), []llm.AgentMessage{
 		{Role: "user", Content: extractPrompt},
 	}, 0.3)
 	if err != nil {
@@ -1619,15 +1803,16 @@ func (p *Pipeline) extractTruthFiles(ctx context.Context, bookID uint, chapterNu
 	}
 
 	for _, f := range extracted.DurableFacts {
-		if f.Subject == "" {
+		if strings.TrimSpace(f.Subject) == "" || strings.TrimSpace(f.Predicate) == "" || strings.TrimSpace(f.Object) == "" {
 			continue
 		}
+		category := normalizeFactCategory(f.Category)
 		resultData.DurableFacts = append(resultData.DurableFacts, model.Fact{
 			BookID:           bookID,
-			Subject:          f.Subject,
-			Predicate:        f.Predicate,
-			Object:           f.Object,
-			Category:         f.Category,
+			Subject:          strings.TrimSpace(f.Subject),
+			Predicate:        strings.TrimSpace(f.Predicate),
+			Object:           strings.TrimSpace(f.Object),
+			Category:         category,
 			ValidFromChapter: chapterNumber,
 			SourceChapter:    chapterNumber,
 		})
@@ -1647,18 +1832,19 @@ func (p *Pipeline) extractTruthFiles(ctx context.Context, bookID uint, chapterNu
 		})
 	}
 
-	if extracted.Summary.KeyEvents != "" {
-		resultData.Summary = &model.ChapterSummary{
-			BookID:             bookID,
-			ChapterNumber:      chapterNumber,
-			Title:              extracted.Summary.Title,
-			CharactersAppeared: extracted.Summary.CharactersAppeared,
-			KeyEvents:          extracted.Summary.KeyEvents,
-			StateChanges:       extracted.Summary.StateChanges,
-			HookActivity:       extracted.Summary.HookActivity,
-			Mood:               extracted.Summary.Mood,
-			ChapterType:        extracted.Summary.ChapterType,
-		}
+	if strings.TrimSpace(extracted.Summary.KeyEvents) == "" {
+		return nil, fmt.Errorf("extract truth summary missing key_events")
+	}
+	resultData.Summary = &model.ChapterSummary{
+		BookID:             bookID,
+		ChapterNumber:      chapterNumber,
+		Title:              strings.TrimSpace(extracted.Summary.Title),
+		CharactersAppeared: strings.TrimSpace(extracted.Summary.CharactersAppeared),
+		KeyEvents:          strings.TrimSpace(extracted.Summary.KeyEvents),
+		StateChanges:       strings.TrimSpace(extracted.Summary.StateChanges),
+		HookActivity:       strings.TrimSpace(extracted.Summary.HookActivity),
+		Mood:               strings.TrimSpace(extracted.Summary.Mood),
+		ChapterType:        strings.TrimSpace(extracted.Summary.ChapterType),
 	}
 
 	return resultData, nil
@@ -1698,11 +1884,39 @@ func (p *Pipeline) persistExtractedTruthFiles(bookID uint, chapterNumber uint, e
 		}
 	}
 	if opts.SaveSummary && extracted.Summary != nil {
-		if err := p.truth.SaveChapterSummary(extracted.Summary); err != nil {
+		if existing, ok := p.findChapterSummary(bookID, chapterNumber); ok {
+			existing.Title = defaultString(strings.TrimSpace(extracted.Summary.Title), existing.Title)
+			existing.CharactersAppeared = strings.TrimSpace(extracted.Summary.CharactersAppeared)
+			existing.KeyEvents = strings.TrimSpace(extracted.Summary.KeyEvents)
+			existing.StateChanges = strings.TrimSpace(extracted.Summary.StateChanges)
+			existing.HookActivity = strings.TrimSpace(extracted.Summary.HookActivity)
+			existing.Mood = strings.TrimSpace(extracted.Summary.Mood)
+			existing.ChapterType = strings.TrimSpace(extracted.Summary.ChapterType)
+			if err := p.truth.SaveChapterSummary(existing); err != nil {
+				return err
+			}
+		} else if err := p.truth.SaveChapterSummary(extracted.Summary); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func normalizeFactCategory(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "identity", "身份":
+		return "identity"
+	case "resource", "资源":
+		return "resource"
+	case "item", "物品", "道具":
+		return "item"
+	case "rule", "规则", "设定":
+		return "rule"
+	case "relationship", "关系":
+		return "relationship"
+	default:
+		return "relationship"
+	}
 }
 
 func (p *Pipeline) saveChapterSnapshot(bookID uint, chapterNumber uint, sections map[string]string) {
@@ -2299,7 +2513,7 @@ func (p *Pipeline) generateRoleAnchors(ctx context.Context, book *model.Book, se
 2. 要符合题材和故事气质
 3. 只返回 JSON，不要解释`, book.Title, defaultString(book.Description, "暂无额外简介"), clipText(sections["story_frame"], 1000), clipText(sections["roles"], 1500))
 
-	raw, err := p.llm.Chat(ctx, modelID, "你是小说角色命名编辑，只返回 JSON。", []llm.AgentMessage{
+	raw, err := p.llm.ChatForAgent(ctx, "role_namer", modelID, "你是小说角色命名编辑，只返回 JSON。", []llm.AgentMessage{
 		{Role: "user", Content: prompt},
 	}, 0.2)
 	if err != nil {
@@ -2999,7 +3213,8 @@ const plannerBuildInput = `你正在创作小说《%s》（题材：%s，平台�
 ## 用户指令
 %s
 
-请为本章生成 chapter_memo。`
+请根据“当前上下文”和“用户指令”一起生成本章 chapter_memo。
+用户指令是本章局部意图，但不能覆盖已发生剧情、真相文件、角色状态和伏笔账本；如果用户指令与既有剧情冲突，优先保持连续性，并把用户意图改写成可落地的相邻推进。`
 
 const writerBuildInput = `你正在创作小说《%s》。
 

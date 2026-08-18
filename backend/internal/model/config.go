@@ -27,7 +27,10 @@ type LLMModel struct {
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 
-	TokenUsage int64 `json:"token_usage" gorm:"-"`
+	PromptTokens     int64 `json:"prompt_tokens" gorm:"-"`
+	CompletionTokens int64 `json:"completion_tokens" gorm:"-"`
+	CachedTokens     int64 `json:"cached_tokens" gorm:"-"`
+	TokenUsage       int64 `json:"token_usage" gorm:"-"`
 }
 
 func (LLMModel) TableName() string {
@@ -37,14 +40,31 @@ func (LLMModel) TableName() string {
 type TokenUsage struct {
 	ID               uint      `json:"id" gorm:"primaryKey"`
 	LLMModelID       uint      `json:"llm_model_id" gorm:"index;not null"`
+	AgentName        string    `json:"agent_name" gorm:"size:64;index"`
 	PromptTokens     int64     `json:"prompt_tokens" gorm:"default:0"`
 	CompletionTokens int64     `json:"completion_tokens" gorm:"default:0"`
+	CachedTokens     int64     `json:"cached_tokens" gorm:"default:0"`
 	TotalTokens      int64     `json:"total_tokens" gorm:"default:0"`
 	CreatedAt        time.Time `json:"created_at"`
 }
 
 func (TokenUsage) TableName() string {
 	return "token_usages"
+}
+
+type TokenUsageSummary struct {
+	PromptTokens     int64 `json:"prompt_tokens"`
+	CompletionTokens int64 `json:"completion_tokens"`
+	CachedTokens     int64 `json:"cached_tokens"`
+	TotalTokens      int64 `json:"total_tokens"`
+}
+
+type AgentTokenUsageSummary struct {
+	AgentName        string `json:"agent_name"`
+	PromptTokens     int64  `json:"prompt_tokens"`
+	CompletionTokens int64  `json:"completion_tokens"`
+	CachedTokens     int64  `json:"cached_tokens"`
+	TotalTokens      int64  `json:"total_tokens"`
 }
 
 type AgentModelRoute struct {

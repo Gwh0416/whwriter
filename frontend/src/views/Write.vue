@@ -6,19 +6,21 @@
       </div>
       <nav class="sidebar-nav">
         <a href="#" class="nav-item" :class="{ active: tab === 'books' }" @click.prevent="switchTab('books')">书籍管理</a>
-        <a href="#" class="nav-item" :class="{ active: tab === 'genres' }" @click.prevent="switchTab('genres')">题材管理</a>
-        <a href="#" class="nav-item" :class="{ active: tab === 'settings' }" @click.prevent="switchTab('settings')">个人设置</a>
-        <a href="#" class="nav-item" :class="{ active: tab === 'conversations' }" @click.prevent="switchTab('conversations')">对话管理</a>
-      </nav>
-      <div class="sidebar-footer">
-        <div class="user-info">
-          <div class="avatar">{{ user?.username?.[0] }}</div>
-          <div>
-            <div class="user-name">{{ user?.username }}</div>
-          </div>
+        <a href="#" class="nav-item" :class="{ active: tab === 'radar' }" @click.prevent="switchTab('radar')">我的雷达</a>
+        <div v-if="tab === 'radar'" class="nav-subitems">
+          <a
+            v-for="item in radarSubTabs"
+            :key="item.key"
+            href="#"
+            class="nav-subitem"
+            :class="{ active: radarSubTab === item.key }"
+            @click.prevent="switchRadarSubTab(item.key)"
+          >
+            {{ item.label }}
+          </a>
         </div>
-        <button class="logout-btn" @click="logout">退出</button>
-      </div>
+        <a href="#" class="nav-item" :class="{ active: tab === 'settings' }" @click.prevent="switchTab('settings')">系统设置</a>
+      </nav>
     </aside>
     <main class="main-content">
       <header class="topbar">
@@ -105,6 +107,8 @@
               <span class="meta-value">{{ chapters.length }} / {{ selectedBook.target_chapters }}</span>
             </div>
             <div class="book-meta-actions">
+              <button class="action-btn" :disabled="exporting" @click="exportBook('txt')">导出 TXT</button>
+              <button class="action-btn" :disabled="exporting" @click="exportBook('md')">导出 MD</button>
               <button class="action-btn danger" :disabled="deletingBookID === selectedBook.id" @click="deleteBook(selectedBook)">
                 {{ deletingBookID === selectedBook.id ? '删除中...' : '删除本书' }}
               </button>
@@ -113,7 +117,7 @@
 
           <div class="book-tabs">
             <button class="book-tab" :class="{ active: bookTab === 'write' }" @click="bookTab = 'write'">写作</button>
-            <button class="book-tab" :class="{ active: bookTab === 'truth' }" @click="bookTab = 'truth'; loadTruthFiles()">真相文件</button>
+            <button class="book-tab" :class="{ active: bookTab === 'truth' }" @click="bookTab = 'truth'; loadTruthFiles()">记忆文件</button>
           </div>
 
           <div v-if="bookTab === 'write'">
@@ -131,8 +135,13 @@
                   </select>
                 </div>
                 <div class="control-group">
-                  <label>写作指令（可选）</label>
-                  <input v-model="writeInput" placeholder="如：本章要推进主角升级到金丹期" :disabled="writing" @keyup.enter="writeChapter" />
+                  <label>本章提示（可选）</label>
+                  <textarea
+                    v-model="writeInput"
+                    placeholder="如：承接上一章冲突，让主角在公司会议上反击；女主只旁观不表态；章尾留下新订单被截胡的悬念"
+                    rows="3"
+                    :disabled="writing"
+                  ></textarea>
                 </div>
                 <button class="write-btn" @click="writeChapter" :disabled="!canWrite">
                   {{ writing ? 'AI 正在创作...' : (selectedBook?.status === 'initializing' ? '初始化中...' : selectedBook?.status === 'writing' ? '写作中...' : '写下一章') }}
@@ -153,6 +162,9 @@
                     <span class="chapter-status" :class="ch.status">{{ ch.status }}</span>
                   </div>
                   <div v-if="isLatestChapter(ch)" class="chapter-actions">
+                    <button class="action-btn sm" :disabled="writing" @click.stop="rewriteLatestChapter(ch)">
+                      重写本章
+                    </button>
                     <button class="action-btn danger sm" :disabled="deletingChapterNumber === ch.chapter_number" @click.stop="deleteChapter(ch)">
                       {{ deletingChapterNumber === ch.chapter_number ? '删除中...' : '删除本章' }}
                     </button>
@@ -266,8 +278,8 @@
               <div v-if="truthSubTab === 'facts'" class="truth-panel">
                 <div v-if="!truthData.facts?.length" class="no-data">
                   <div class="no-data-icon">📋</div>
-                  <p>暂无长期有效事实</p>
-                  <span>这里只展示会持续影响后续章节的身份、资源、物品、规则和关系。</span>
+                  <p>暂无长期有效设定</p>
+                  <span>这里只展示会持续影响后续章节的身份、资源、物品、规则和关系设定。</span>
                 </div>
                 <div v-else class="fact-groups">
                   <div v-for="group in factGroups" :key="group.key" class="fact-group-card">
@@ -454,7 +466,6 @@
                 <tr>
                   <th>名称</th>
                   <th>简介</th>
-                  <th>类型</th>
                   <th>操作</th>
                 </tr>
               </thead>
@@ -465,42 +476,129 @@
                     <button class="view-btn" @click="viewMarkdown(g)">查看</button>
                   </td>
                   <td>
-                    <span class="type-tag" :class="g.user_id === 0 ? 'public' : 'private'">
-                      {{ g.user_id === 0 ? '公共' : '私有' }}
-                    </span>
-                  </td>
-                  <td>
-                    <div class="action-group" v-if="g.user_id !== 0">
-                      <button class="action-btn" @click="openGenreModal(g)">编辑</button>
-                      <button class="action-btn danger" @click="deleteMyGenre(g.id)">删除</button>
-                    </div>
-                    <span v-else class="no-action">—</span>
+                    <button class="action-btn" @click="openGenreModal(g)">编辑</button>
+                    <button class="action-btn danger" @click="deleteGenre(g.id)">删除</button>
                   </td>
                 </tr>
                 <tr v-if="genres.length === 0">
-                  <td colspan="4" class="empty-row">暂无可用的题材</td>
+                  <td colspan="3" class="empty-row">暂无可用的题材</td>
                 </tr>
               </tbody>
             </table>
           </div>
         </div>
 
-        <div v-if="tab === 'settings'" class="settings-section">
-          <div class="settings-card">
-            <div class="setting-item" @click="$router.push('/change-password')">
-              <div class="setting-info">
-                <div class="setting-label">修改密码</div>
-                <div class="setting-desc">更新你的账户密码</div>
-              </div>
-              <div class="setting-arrow">→</div>
-            </div>
-          </div>
-        </div>
+        <MyRadar v-if="tab === 'radar'" :active-tab="radarSubTab" />
 
-        <div v-if="tab === 'conversations'" class="empty-state">
-          <div class="empty-icon">💬</div>
-          <h2>对话管理</h2>
-          <p>即将上线，敬请期待</p>
+        <div v-if="tab === 'settings'" class="settings-section">
+          <section class="settings-hero">
+            <div>
+              <h2>系统设置</h2>
+              <p>维护本地基础数据、模型厂商和 Token 用量。这里不再区分管理员和普通用户，所有设置都属于当前本地工作台。</p>
+            </div>
+            <div class="token-summary">
+              <span>总 Token 消耗</span>
+              <strong>{{ totalTokenUsage.toLocaleString() }}</strong>
+              <em>输入 {{ totalPromptTokens.toLocaleString() }} · 输出 {{ totalCompletionTokens.toLocaleString() }} · 缓存 {{ totalCachedTokens.toLocaleString() }}</em>
+            </div>
+          </section>
+
+          <div class="settings-grid">
+            <section class="settings-card">
+              <div class="settings-card-head">
+                <div>
+                  <h3>基础数据</h3>
+                  <p>初始化平台、默认兼容题材和番茄官方标签。写作维度以标签为准。</p>
+                </div>
+              </div>
+              <button class="save-btn" :disabled="initializing" @click="initializeBaseData">{{ initializing ? '初始化中...' : '初始化基础数据' }}</button>
+              <div v-if="initMessage" class="settings-message">{{ initMessage }}</div>
+            </section>
+
+            <section class="settings-card">
+              <div class="settings-card-head">
+                <div>
+                  <h3>Token 用量</h3>
+                  <p>按模型统计当前本地工作台的调用消耗。</p>
+                </div>
+              </div>
+              <div v-if="modelLoading" class="empty-row">加载中...</div>
+              <div v-else-if="tokenDetails.length" class="token-row">
+                <span v-for="d in tokenDetails" :key="d.id" class="token-pill">
+                  <strong>{{ d.provider }} / {{ d.model_name }}</strong>
+                  总量 {{ (d.token_usage || 0).toLocaleString() }}
+                  <em>输入 {{ (d.prompt_tokens || 0).toLocaleString() }} · 输出 {{ (d.completion_tokens || 0).toLocaleString() }} · 缓存 {{ (d.cached_tokens || 0).toLocaleString() }}</em>
+                </span>
+              </div>
+              <div v-else class="empty-settings">暂无 Token 记录</div>
+              <div v-if="agentTokenDetails.length" class="agent-token-row">
+                <div v-for="d in agentTokenDetails" :key="d.agent_name" class="agent-token-pill">
+                  <strong>{{ agentNameLabel(d.agent_name) }}</strong>
+                  <span>总量 {{ (d.total_tokens || 0).toLocaleString() }}</span>
+                  <em>输入 {{ (d.prompt_tokens || 0).toLocaleString() }} · 输出 {{ (d.completion_tokens || 0).toLocaleString() }} · 缓存 {{ (d.cached_tokens || 0).toLocaleString() }}</em>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <section class="settings-card model-settings-card">
+            <div class="settings-card-head model-settings-head">
+              <div>
+                <h3>模型厂商</h3>
+                <p>配置 OpenAI 兼容模型服务，测试连接后导入可用模型，并设置默认模型。</p>
+              </div>
+              <button class="add-btn" @click="openProviderModal()">+ 新增厂商</button>
+            </div>
+
+            <div v-if="modelLoading" class="empty-row">加载中...</div>
+            <div v-else-if="!llmConfigs.length" class="empty-settings">暂无模型厂商配置</div>
+            <div v-else class="provider-grid">
+              <div v-for="cfg in llmConfigs" :key="cfg.id" class="provider-card">
+                <div class="provider-header">
+                  <div>
+                    <div class="provider-name">{{ cfg.label || cfg.provider }}</div>
+                    <div class="provider-url">{{ cfg.base_url || '未配置 Base URL' }}</div>
+                  </div>
+                  <div class="action-group">
+                    <button class="action-btn" @click="openProviderModal(cfg)">编辑</button>
+                    <button class="action-btn" @click="openTestConnection(cfg)">测试连接</button>
+                    <button class="action-btn danger" @click="deleteProvider(cfg.id)">删除</button>
+                  </div>
+                </div>
+
+                <div v-if="testingId === cfg.id" class="test-box" :class="{ success: testSuccess }">
+                  <div v-if="testLoading">正在连接模型服务...</div>
+                  <div v-else-if="testSuccess">
+                    <div class="test-title">连接成功，发现 {{ testModels.length }} 个模型</div>
+                    <div class="model-check-list">
+                      <label v-for="m in testModels" :key="m" class="model-check">
+                        <input type="checkbox" :value="m" v-model="selectedTestModels" />
+                        <span>{{ m }}</span>
+                      </label>
+                    </div>
+                    <button class="save-btn sm" :disabled="selectedTestModels.length === 0" @click="importModels(cfg.id)">导入选中模型</button>
+                  </div>
+                  <div v-else>{{ testError }}</div>
+                </div>
+
+                <div class="model-list">
+                  <div v-for="m in cfg.models || []" :key="m.id" class="model-item" :class="{ disabled: !m.is_enabled }">
+                    <div class="model-title">
+                      <strong>{{ m.model_name }}</strong>
+                      <span v-if="m.is_default" class="default-badge">默认</span>
+                      <span v-if="!m.is_enabled" class="disabled-badge">已禁用</span>
+                    </div>
+                    <div class="model-actions">
+                      <span>{{ (m.token_usage || 0).toLocaleString() }} tokens</span>
+                      <button class="action-btn sm" @click="toggleModel(m)">{{ m.is_enabled ? '禁用' : '启用' }}</button>
+                      <button v-if="!m.is_default" class="action-btn sm" @click="setDefaultModel(m.id)">设为默认</button>
+                    </div>
+                  </div>
+                  <div v-if="!cfg.models?.length" class="empty-settings">暂无模型，请先测试连接并导入</div>
+                </div>
+              </div>
+            </div>
+          </section>
         </div>
 
       </div>
@@ -528,6 +626,23 @@
             </div>
           </div>
         </div>
+        <div v-if="writeRunTokenSummary.total_tokens > 0" class="run-token-card">
+          <div class="run-token-head">
+            <span>本章 Token 消耗</span>
+            <strong>{{ formatTokenCompact(writeRunTokenSummary.total_tokens) }}</strong>
+          </div>
+          <div class="run-token-meta">
+            输入 {{ formatTokenCompact(writeRunTokenSummary.prompt_tokens) }} ·
+            输出 {{ formatTokenCompact(writeRunTokenSummary.completion_tokens) }} ·
+            缓存 {{ formatTokenCompact(writeRunTokenSummary.cached_tokens) }}
+          </div>
+          <div class="run-token-stages">
+            <div v-for="row in writeRunStageTokenRows" :key="row.stage" class="run-token-stage">
+              <span>{{ row.label }}</span>
+              <strong>{{ formatTokenCompact(row.total_tokens) }}</strong>
+            </div>
+          </div>
+        </div>
         <div v-if="progressError" class="progress-error">{{ progressError }}</div>
         <div v-if="currentWriteRun && (currentWriteRun.status === 'running' || currentWriteRun.status === 'queued')" class="progress-actions">
           <button class="cancel-btn" :disabled="cancellingRun" @click="cancelCurrentRun">
@@ -536,17 +651,17 @@
         </div>
         <div v-if="currentWriteRun && (currentWriteRun.status === 'failed' || currentWriteRun.status === 'cancelled')" class="progress-actions">
           <button class="cancel-btn" @click="abandonCurrentRun">
-            取消本次写作
+            不写了
           </button>
           <button class="cancel-btn" :disabled="retryingRun" @click="retryCurrentRun('restart')">
-            {{ retryingRun ? '重试中...' : '整章重跑' }}
+            {{ retryingRun ? '重写中...' : '整章重写' }}
           </button>
           <button class="save-btn" :disabled="retryingRun" @click="retryCurrentRun('resume_failed_stage')">
-            {{ retryingRun ? '重试中...' : '从失败阶段继续' }}
+            {{ retryingRun ? '重试中...' : '从失败阶段重试' }}
           </button>
         </div>
         <div v-if="progressStage === 'complete'" class="progress-complete">
-          <p>创作完成，最新章节已加入章节列表。</p>
+          <p>{{ currentWriteRun?.run_type === 'rewrite_latest' ? '重写完成，最新章节已更新。' : '创作完成，最新章节已加入章节列表。' }}</p>
           <button class="save-btn" @click="closeProgress">查看章节</button>
         </div>
       </div>
@@ -589,18 +704,48 @@
         </div>
       </div>
     </div>
+
+    <div v-if="showProviderModal" class="modal-overlay" @click.self="showProviderModal = false">
+      <div class="modal">
+        <h3>{{ editingProvider ? '编辑模型厂商' : '新增模型厂商' }}</h3>
+        <div class="form-group">
+          <label>厂商标识</label>
+          <input v-model="providerForm.provider" placeholder="如 openai / deepseek" />
+        </div>
+        <div class="form-group">
+          <label>显示名称</label>
+          <input v-model="providerForm.label" placeholder="如 OpenAI" />
+        </div>
+        <div class="form-group">
+          <label>Base URL</label>
+          <input v-model="providerForm.base_url" placeholder="https://api.openai.com/v1" />
+        </div>
+        <div class="form-group">
+          <label>API Key</label>
+          <input v-model="providerForm.api_key" type="password" :placeholder="editingProvider ? '留空则不修改' : '请输入 API Key'" />
+        </div>
+        <div class="modal-actions">
+          <button class="cancel-btn" @click="showProviderModal = false">取消</button>
+          <button class="save-btn" :disabled="providerSaving" @click="saveProvider">{{ providerSaving ? '保存中...' : '保存' }}</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, reactive } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted, onUnmounted, reactive, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { marked } from 'marked'
 import yaml from 'js-yaml'
+import MyRadar from './MyRadar.vue'
 
+const route = useRoute()
 const router = useRouter()
-const user = ref(null)
-const tab = ref('books')
+const workspaceTabs = new Set(['books', 'radar', 'settings'])
+const radarTabs = new Set(['scan', 'profiles', 'rules', 'intros'])
+const tab = ref(normalizeWorkspaceTab(route.query.tab))
+const radarSubTab = ref(normalizeRadarTab(route.query.radar))
 const books = ref([])
 const genres = ref([])
 const llmConfigs = ref([])
@@ -620,7 +765,7 @@ const truthSubTab = ref('state')
 const truthTabs = [
   { key: 'state', label: '当前状态', icon: '🧭' },
   { key: 'characters', label: '人物', icon: '👤' },
-  { key: 'facts', label: '事实', icon: '📋' },
+  { key: 'facts', label: '设定', icon: '📋' },
   { key: 'hooks', label: '伏笔', icon: '🪝' },
   { key: 'summaries', label: '章节摘要', icon: '📝' },
   { key: 'foundations', label: '基础文件', icon: '📐' },
@@ -668,6 +813,7 @@ const writeRunStages = ref([])
 const cancellingRun = ref(false)
 const retryingRun = ref(false)
 let writeRunPollTimer = null
+const activeWriteRunStorageKey = 'whwriter.activeWriteRun'
 const progressSteps = reactive([
   { key: 'loading', label: '加载书籍信息', desc: '创建本次写作任务，锁定书籍并准备进入创作链路。', status: 'pending', msg: '' },
   { key: 'context', label: '构建上下文', desc: '整理当前书籍的状态、设定、伏笔和历史章节信息。', status: 'pending', msg: '' },
@@ -676,10 +822,35 @@ const progressSteps = reactive([
   { key: 'parsing', label: '解析 Writer 输出', desc: '把 Writer 返回结果拆成标题、正文和后续结算所需片段。', status: 'pending', msg: '' },
   { key: 'auditing', label: 'Auditor 审查结构', desc: '检查章节结构、推进节奏和状态一致性是否合理。', status: 'pending', msg: '' },
   { key: 'revising', label: 'Reviser 修订正文', desc: '当审查不过时，按问题清单修订正文和状态片段。', status: 'pending', msg: '' },
-  { key: 'polishing', label: 'Polisher 润色文稿', desc: '在不改变事实的前提下优化表达、节奏和可读性。', status: 'pending', msg: '' },
-  { key: 'extracting', label: '提取真相文件', desc: '结算本章带来的状态变化，并抽取人物、事实、伏笔等真相数据。', status: 'pending', msg: '' },
-  { key: 'snapshot', label: '保存章节快照', desc: '统一提交章节和真相状态，并生成用于回滚的快照。', status: 'pending', msg: '' },
+  { key: 'polishing', label: 'Polisher 润色文稿', desc: '在不改变既有设定的前提下优化表达、节奏和可读性。', status: 'pending', msg: '' },
+  { key: 'extracting', label: '提取记忆文件', desc: '结算本章带来的状态变化，并抽取人物、设定、伏笔等记忆数据。', status: 'pending', msg: '' },
+  { key: 'snapshot', label: '保存章节快照', desc: '统一提交章节和记忆状态，并生成用于回滚的快照。', status: 'pending', msg: '' },
 ])
+const writeRunStageTokenRows = computed(() => {
+  const byStage = new Map()
+  for (const stage of writeRunStages.value || []) {
+    const meta = stageMeta(stage)
+    const summary = sumTokenRows(meta.token_summary || [])
+    if (summary.total_tokens <= 0 && summary.prompt_tokens <= 0 && summary.completion_tokens <= 0 && summary.cached_tokens <= 0) continue
+    if (!byStage.has(stage.stage)) {
+      byStage.set(stage.stage, {
+        stage: stage.stage,
+        label: progressStepLabel(stage.stage),
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        cached_tokens: 0,
+        total_tokens: 0,
+      })
+    }
+    addTokenSummary(byStage.get(stage.stage), summary)
+  }
+  return Array.from(byStage.values())
+})
+const writeRunTokenSummary = computed(() => {
+  const total = { prompt_tokens: 0, completion_tokens: 0, cached_tokens: 0, total_tokens: 0 }
+  for (const row of writeRunStageTokenRows.value) addTokenSummary(total, row)
+  return total
+})
 
 const showChapterModal = ref(false)
 const viewingChapter = ref(null)
@@ -721,13 +892,37 @@ const genreSaving = ref(false)
 const genreForm = ref({ name: '', profile_markdown: '' })
 const deletingBookID = ref(0)
 const deletingChapterNumber = ref(0)
+const initializing = ref(false)
+const initMessage = ref('')
+const totalTokenUsage = ref(0)
+const totalPromptTokens = ref(0)
+const totalCompletionTokens = ref(0)
+const totalCachedTokens = ref(0)
+const tokenDetails = ref([])
+const agentTokenDetails = ref([])
+const modelLoading = ref(false)
+const showProviderModal = ref(false)
+const editingProvider = ref(null)
+const providerSaving = ref(false)
+const providerForm = ref({ provider: '', label: '', base_url: '', api_key: '' })
+const testingId = ref(null)
+const testLoading = ref(false)
+const testSuccess = ref(false)
+const testError = ref('')
+const testModels = ref([])
+const selectedTestModels = ref([])
 
-const token = localStorage.getItem('token')
 
 const tabTitle = computed(() => {
-  const titles = { books: '书籍管理', genres: '题材管理', settings: '个人设置', conversations: '对话管理' }
+  const titles = { books: '书籍管理', radar: '我的雷达', settings: '系统设置' }
   return titles[tab.value] || ''
 })
+const radarSubTabs = [
+  { key: 'scan', label: '扫描书籍' },
+  { key: 'profiles', label: '聚合画像' },
+  { key: 'rules', label: '写作规则' },
+  { key: 'intros', label: '简介雷达' },
+]
 
 const statusLabels = {
   initializing: '初始化中',
@@ -759,6 +954,16 @@ const writeDisabledReason = computed(() => {
   if (selectedBook.value.status === 'completed') return '该书已完结，如需续写请先调整状态。'
   return ''
 })
+
+function normalizeWorkspaceTab(raw) {
+  const value = Array.isArray(raw) ? raw[0] : raw
+  return workspaceTabs.has(value) ? value : 'books'
+}
+
+function normalizeRadarTab(raw) {
+  const value = Array.isArray(raw) ? raw[0] : raw
+  return radarTabs.has(value) ? value : 'scan'
+}
 
 function statusLabel(s) {
   return statusLabels[s] || s
@@ -856,42 +1061,82 @@ function leaveBookView() {
   writeRunStages.value = []
 }
 
-async function switchTab(nextTab) {
+async function activateTab(nextTab, syncURL = true) {
+  nextTab = workspaceTabs.has(nextTab) ? nextTab : 'books'
   tab.value = nextTab
+  if (syncURL) {
+    const query = { ...route.query }
+    if (nextTab === 'books') {
+      delete query.tab
+      delete query.radar
+    } else {
+      query.tab = nextTab
+      if (nextTab === 'radar') query.radar = radarSubTab.value
+      else delete query.radar
+    }
+    await router.replace({ path: '/write', query })
+  }
   if (nextTab !== 'books') {
     leaveBookView()
   }
-  if (nextTab === 'genres') {
-    await loadGenres()
+  if (nextTab === 'settings') {
+    await loadModelSettings()
   }
 }
 
+async function switchTab(nextTab) {
+  await activateTab(nextTab, true)
+}
+
+async function switchRadarSubTab(nextTab) {
+  radarSubTab.value = normalizeRadarTab(nextTab)
+  if (tab.value !== 'radar') {
+    await activateTab('radar', true)
+    return
+  }
+  const query = { ...route.query, tab: 'radar', radar: radarSubTab.value }
+  await router.replace({ path: '/write', query })
+}
+
 async function loadBooks() {
-  const [userRes, booksRes, llmRes] = await Promise.all([
-    fetch('/api/v1/me', { headers: { 'Authorization': 'Bearer ' + token } }),
-    fetch('/api/v1/books', { headers: { 'Authorization': 'Bearer ' + token } }),
-    fetch('/api/v1/llm-configs', { headers: { 'Authorization': 'Bearer ' + token } }),
+  const [booksRes, llmRes] = await Promise.all([
+    fetch('/api/v1/books', { headers: { } }),
+    fetch('/api/v1/llm-configs', { headers: { } }),
   ])
-  if (userRes.ok) user.value = await userRes.json()
   if (booksRes.ok) books.value = await booksRes.json()
   if (llmRes.ok) llmConfigs.value = await llmRes.json()
 }
 
 onMounted(async () => {
   await loadBooks()
+  if (tab.value === 'settings') {
+    await loadModelSettings()
+  }
+  await restoreStoredWriteRun()
 })
 
 onUnmounted(() => {
   stopWriteRunPolling()
 })
 
+watch(() => route.query.tab, async (next) => {
+  const nextTab = normalizeWorkspaceTab(next)
+  if (nextTab !== tab.value) {
+    await activateTab(nextTab, false)
+  }
+})
+
+watch(() => route.query.radar, (next) => {
+  radarSubTab.value = normalizeRadarTab(next)
+})
+
 async function loadGenres() {
-  const res = await fetch('/api/v1/my-genres', { headers: { 'Authorization': 'Bearer ' + token } })
+  const res = await fetch('/api/v1/genres', { headers: { } })
   if (res.ok) genres.value = await res.json()
 }
 
 async function openBook(id) {
-  const res = await fetch(`/api/v1/books/${id}`, { headers: { 'Authorization': 'Bearer ' + token } })
+  const res = await fetch(`/api/v1/books/${id}`, { headers: { } })
   if (res.ok) {
     const data = await res.json()
     selectedBook.value = data.book
@@ -903,16 +1148,68 @@ async function openBook(id) {
   }
 }
 
+function rememberWriteRun(run) {
+  if (!run?.id) return
+  localStorage.setItem(activeWriteRunStorageKey, JSON.stringify({
+    run_id: run.id,
+    book_id: run.book_id,
+  }))
+}
+
+function forgetWriteRun() {
+  localStorage.removeItem(activeWriteRunStorageKey)
+}
+
+async function restoreStoredWriteRun() {
+  const raw = localStorage.getItem(activeWriteRunStorageKey)
+  if (!raw || currentWriteRun.value?.id) return
+  let stored = null
+  try {
+    stored = JSON.parse(raw)
+  } catch {
+    forgetWriteRun()
+    return
+  }
+  if (!stored?.run_id) return
+  try {
+    const run = await refreshWriteRun(stored.run_id)
+    if (!run) {
+      forgetWriteRun()
+      return
+    }
+    if (run.book_id && selectedBook.value?.id !== run.book_id) {
+      await openBook(run.book_id)
+      currentWriteRun.value = run
+      await refreshWriteRun(run.id)
+    }
+    showProgressModal.value = true
+    if (run.status === 'queued' || run.status === 'running') {
+      writing.value = true
+      await pollWriteRun(run.id)
+    } else if (run.status === 'succeeded') {
+      writing.value = false
+      await finalizeWrite({
+        chapter_number: run.target_chapter,
+        title: currentWriteRun.value?.title || '',
+      })
+    } else {
+      writing.value = false
+    }
+  } catch {
+    forgetWriteRun()
+  }
+}
+
 async function deleteBook(book, evt = null) {
   evt?.stopPropagation?.()
   if (!book?.id) return
-  if (!confirm(`确定删除书籍《${book.title}》吗？这会删除该书的章节、真相文件和运行产物，且不可恢复。`)) return
+  if (!confirm(`确定删除书籍《${book.title}》吗？这会删除该书的章节、记忆文件和运行产物，且不可恢复。`)) return
 
   deletingBookID.value = book.id
   try {
     const res = await fetch(`/api/v1/books/${book.id}`, {
       method: 'DELETE',
-      headers: { 'Authorization': 'Bearer ' + token },
+      headers: { },
     })
     const data = await res.json().catch(() => ({}))
     if (!res.ok) {
@@ -934,12 +1231,41 @@ async function deleteBook(book, evt = null) {
   }
 }
 
+async function exportBook(format) {
+  if (!selectedBook.value?.id || exporting.value) return
+  exporting.value = true
+  try {
+    const res = await fetch(`/api/v1/books/${selectedBook.value.id}/export?format=${format}`, {
+      headers: { },
+    })
+    if (!res.ok) {
+      let msg = '导出失败'
+      try { const data = await res.json(); msg = data.error || msg } catch (e) {}
+      alert(msg)
+      return
+    }
+    const blob = await res.blob()
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${selectedBook.value.title || 'book'}.${format}`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    window.URL.revokeObjectURL(url)
+  } catch (e) {
+    alert('网络错误：' + e.message)
+  } finally {
+    exporting.value = false
+  }
+}
+
 async function loadTruthFiles() {
   if (!selectedBook.value) return
   truthLoading.value = true
   try {
     const res = await fetch(`/api/v1/books/${selectedBook.value.id}/truth-files`, {
-      headers: { 'Authorization': 'Bearer ' + token },
+      headers: { },
     })
     if (res.ok) {
       truthData.value = await res.json()
@@ -997,6 +1323,46 @@ function writeRunStatusLabel(status) {
   return writeRunStatusLabels[status] || status
 }
 
+function stageMeta(stage) {
+  if (!stage?.output_payload) return {}
+  try {
+    const payload = JSON.parse(stage.output_payload)
+    return payload?.meta || {}
+  } catch {
+    return {}
+  }
+}
+
+function sumTokenRows(rows) {
+  const total = { prompt_tokens: 0, completion_tokens: 0, cached_tokens: 0, total_tokens: 0 }
+  for (const row of rows || []) addTokenSummary(total, row)
+  return total
+}
+
+function addTokenSummary(target, row) {
+  target.prompt_tokens += Number(row?.prompt_tokens || 0)
+  target.completion_tokens += Number(row?.completion_tokens || 0)
+  target.cached_tokens += Number(row?.cached_tokens || 0)
+  target.total_tokens += Number(row?.total_tokens || 0)
+}
+
+function formatTokenCompact(value) {
+  return Number(value || 0).toLocaleString()
+}
+
+function progressStepLabel(stageKey) {
+  return progressSteps.find(step => step.key === stageKey)?.label || stageKey || '未知阶段'
+}
+
+function stageAttemptMsg(stage, base) {
+  const meta = stageMeta(stage)
+  const attempt = Number(meta.attempt || stage?.attempt || 1)
+  const maxAttempts = Number(meta.max_attempts || 3)
+  if (attempt <= 1 && base !== '失败') return base
+  if (base === '失败') return `${base}（已尝试 ${attempt}/${maxAttempts} 次）`
+  return `${base}（第 ${attempt}/${maxAttempts} 次）`
+}
+
 function syncProgressFromRun(run, stages) {
   progressError.value = ''
   progressStage.value = run?.current_stage || ''
@@ -1031,13 +1397,14 @@ function syncProgressFromRun(run, stages) {
     }
     if (stage.status === 'succeeded' || stage.status === 'skipped') {
       step.status = 'done'
-      step.msg = stage.status === 'skipped' ? '已跳过' : '已完成'
+      const skippedMsg = stage.stage === 'revising' ? '审查通过，无需修订' : '已跳过'
+      step.msg = stageAttemptMsg(stage, stage.status === 'skipped' ? skippedMsg : '已完成')
     } else if (stage.status === 'running') {
       step.status = 'active'
-      step.msg = '执行中'
+      step.msg = stageAttemptMsg(stage, '执行中')
     } else if (stage.status === 'failed' || stage.status === 'cancelled') {
       step.status = 'failed'
-      step.msg = stage.status === 'cancelled' ? '已取消' : '失败'
+      step.msg = stage.status === 'cancelled' ? '已取消' : stageAttemptMsg(stage, '失败')
       progressError.value = run?.error_message || stage.error_message || ''
     } else {
       step.status = 'pending'
@@ -1056,7 +1423,7 @@ function syncProgressFromRun(run, stages) {
 
 async function refreshWriteRun(runID) {
   const res = await fetch(`/api/v1/write-runs/${runID}/stages`, {
-    headers: { 'Authorization': 'Bearer ' + token },
+    headers: { },
   })
   if (!res.ok) throw new Error('获取写作任务详情失败')
   const data = await res.json()
@@ -1098,7 +1465,7 @@ async function pollWriteRun(runID) {
 
 async function restoreActiveWriteRun(bookID) {
   const res = await fetch(`/api/v1/books/${bookID}/write-runs/active`, {
-    headers: { 'Authorization': 'Bearer ' + token },
+    headers: { },
   })
   if (!res.ok) return
   const data = await res.json()
@@ -1106,6 +1473,7 @@ async function restoreActiveWriteRun(bookID) {
   showProgressModal.value = true
   writing.value = true
   currentWriteRun.value = data.run
+  rememberWriteRun(data.run)
   await pollWriteRun(data.run.id)
 }
 
@@ -1119,7 +1487,6 @@ async function writeChapter() {
     const res = await fetch(`/api/v1/books/${selectedBook.value.id}/write-runs`, {
       method: 'POST',
       headers: {
-        'Authorization': 'Bearer ' + token,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -1136,6 +1503,58 @@ async function writeChapter() {
     }
     const data = await res.json()
     currentWriteRun.value = data.run
+    rememberWriteRun(data.run)
+    await pollWriteRun(data.run.id)
+  } catch (e) {
+    progressError.value = '网络错误: ' + e.message
+    writing.value = false
+  }
+}
+
+async function rewriteLatestChapter(ch) {
+  if (!selectedBook.value?.id || !ch?.chapter_number) return
+  if (!isLatestChapter(ch)) {
+    alert('当前只支持重写最后一章')
+    return
+  }
+  if (!canWrite.value) {
+    alert(writeDisabledReason.value || '当前状态不可重写')
+    return
+  }
+  const instruction = window.prompt(`请输入第${ch.chapter_number}章《${ch.title || '未命名'}》的重写要求`, writeInput.value || '')
+  if (instruction === null) return
+  if (!instruction.trim()) {
+    alert('重写最后一章需要填写重写要求')
+    return
+  }
+
+  writing.value = true
+  writeResult.value = null
+  resetProgress()
+  showProgressModal.value = true
+  progressError.value = ''
+
+  try {
+    const res = await fetch(`/api/v1/books/${selectedBook.value.id}/write-runs`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model_id: writeModelID.value,
+        user_input: instruction.trim(),
+        run_type: 'rewrite_latest',
+      }),
+    })
+
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      progressError.value = data.error || '重写章节失败'
+      writing.value = false
+      return
+    }
+    currentWriteRun.value = data.run
+    rememberWriteRun(data.run)
     await pollWriteRun(data.run.id)
   } catch (e) {
     progressError.value = '网络错误: ' + e.message
@@ -1149,7 +1568,7 @@ async function cancelCurrentRun() {
   try {
     const res = await fetch(`/api/v1/write-runs/${currentWriteRun.value.id}/cancel`, {
       method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + token },
+      headers: { },
     })
     const data = await res.json().catch(() => ({}))
     if (!res.ok) {
@@ -1170,7 +1589,6 @@ async function retryCurrentRun(mode) {
     const res = await fetch(`/api/v1/write-runs/${currentWriteRun.value.id}/retry`, {
       method: 'POST',
       headers: {
-        'Authorization': 'Bearer ' + token,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ mode }),
@@ -1183,6 +1601,7 @@ async function retryCurrentRun(mode) {
     writing.value = true
     resetProgress()
     currentWriteRun.value = data.run
+    rememberWriteRun(data.run)
     await pollWriteRun(data.run.id)
   } finally {
     retryingRun.value = false
@@ -1191,6 +1610,7 @@ async function retryCurrentRun(mode) {
 
 async function abandonCurrentRun() {
   stopWriteRunPolling()
+  forgetWriteRun()
   writing.value = false
   cancellingRun.value = false
   retryingRun.value = false
@@ -1217,7 +1637,7 @@ async function deleteChapter(ch) {
   try {
     const res = await fetch(`/api/v1/books/${selectedBook.value.id}/chapters/${ch.chapter_number}`, {
       method: 'DELETE',
-      headers: { 'Authorization': 'Bearer ' + token },
+      headers: { },
     })
     const data = await res.json().catch(() => ({}))
     if (!res.ok) {
@@ -1239,6 +1659,7 @@ async function deleteChapter(ch) {
 
 function closeProgress() {
   stopWriteRunPolling()
+  forgetWriteRun()
   showProgressModal.value = false
 }
 
@@ -1269,41 +1690,188 @@ async function saveGenre() {
     const body = JSON.stringify(genreForm.value)
     let res
     if (editingGenre.value) {
-      res = await fetch(`/api/v1/my-genres/${editingGenre.value.id}`, {
+      res = await fetch(`/api/v1/genres/${editingGenre.value.id}`, {
         method: 'PUT',
-        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body,
       })
     } else {
-      res = await fetch('/api/v1/my-genres', {
+      res = await fetch('/api/v1/genres', {
         method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body,
       })
     }
     if (res.ok) {
       showGenreModal.value = false
-      await loadGenres()
+      await loadModelSettings()
     }
   } finally {
     genreSaving.value = false
   }
 }
 
-async function deleteMyGenre(id) {
+async function deleteGenre(id) {
   if (!confirm('确定删除该题材？')) return
-  const res = await fetch(`/api/v1/my-genres/${id}`, {
+  const res = await fetch(`/api/v1/genres/${id}`, {
     method: 'DELETE',
-    headers: { 'Authorization': 'Bearer ' + token },
   })
   if (res.ok) await loadGenres()
 }
 
-function logout() {
-  localStorage.removeItem('token')
-  localStorage.removeItem('role')
-  router.push('/login')
+async function initializeBaseData() {
+  initializing.value = true
+  initMessage.value = ''
+  try {
+    const res = await fetch('/api/v1/initialize', { method: 'POST' })
+    const data = await res.json().catch(() => ({}))
+    initMessage.value = res.ok ? '基础题材和平台已初始化' : (data.message || data.error || '初始化失败')
+    if (res.ok) {
+      await loadGenres()
+    }
+  } finally {
+    initializing.value = false
+  }
 }
+
+async function loadModelSettings() {
+  modelLoading.value = true
+  try {
+    const [configsRes, usageRes] = await Promise.all([
+      fetch('/api/v1/llm-configs'),
+      fetch('/api/v1/llm-configs/token-usage'),
+    ])
+    if (configsRes.ok) llmConfigs.value = await configsRes.json()
+    if (usageRes.ok) {
+      const data = await usageRes.json()
+      totalTokenUsage.value = data.total_usage || 0
+      totalPromptTokens.value = data.prompt_tokens || 0
+      totalCompletionTokens.value = data.completion_tokens || 0
+      totalCachedTokens.value = data.cached_tokens || 0
+      tokenDetails.value = data.details || []
+      agentTokenDetails.value = data.by_agent || []
+    }
+  } finally {
+    modelLoading.value = false
+  }
+}
+
+function agentNameLabel(name) {
+  const labels = {
+    planner: 'Planner',
+    writer: 'Writer',
+    auditor: 'Auditor',
+    reviser: 'Reviser',
+    polisher: 'Polisher',
+    settler: 'Settler',
+    architect: 'Architect',
+    truth_extractor: '记忆提取',
+    role_namer: '角色命名',
+    radar_classifier: '雷达分类',
+    radar_analyzer: '雷达画像',
+    radar_synthesizer: '雷达聚合',
+    chat: '通用调用',
+  }
+  return labels[name] || name || '未知链路'
+}
+
+function openProviderModal(cfg = null) {
+  editingProvider.value = cfg
+  providerForm.value = cfg
+    ? { provider: cfg.provider, label: cfg.label, base_url: cfg.base_url, api_key: '' }
+    : { provider: '', label: '', base_url: '', api_key: '' }
+  showProviderModal.value = true
+}
+
+async function saveProvider() {
+  providerSaving.value = true
+  try {
+    const body = JSON.stringify(providerForm.value)
+    const res = editingProvider.value
+      ? await fetch(`/api/v1/llm-configs/${editingProvider.value.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body })
+      : await fetch('/api/v1/llm-configs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
+    if (res.ok) {
+      showProviderModal.value = false
+      await loadModelSettings()
+      await loadBooks()
+    }
+  } finally {
+    providerSaving.value = false
+  }
+}
+
+async function deleteProvider(id) {
+  if (!confirm('确定删除该模型厂商及其所有模型？')) return
+  const res = await fetch(`/api/v1/llm-configs/${id}`, { method: 'DELETE' })
+  if (res.ok) {
+    await loadModelSettings()
+    await loadBooks()
+  }
+}
+
+async function openTestConnection(cfg) {
+  testingId.value = cfg.id
+  testLoading.value = true
+  testSuccess.value = false
+  testError.value = ''
+  testModels.value = []
+  selectedTestModels.value = []
+  try {
+    const body = JSON.stringify({ config_id: cfg.id, base_url: cfg.base_url, api_key: '' })
+    const res = await fetch('/api/v1/llm-configs/test-connection', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
+    const data = await res.json()
+    if (data.success) {
+      testSuccess.value = true
+      testModels.value = data.models || []
+    } else {
+      testError.value = data.error || '连接失败'
+    }
+  } catch {
+    testError.value = '网络错误'
+  } finally {
+    testLoading.value = false
+  }
+}
+
+async function importModels(configID) {
+  const models = selectedTestModels.value.map(name => ({ model_name: name, is_enabled: true, is_default: false }))
+  const res = await fetch(`/api/v1/llm-configs/${configID}/models`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ models }),
+  })
+  if (res.ok) {
+    testingId.value = null
+    await loadModelSettings()
+    await loadBooks()
+  }
+}
+
+async function toggleModel(m) {
+  const cfg = llmConfigs.value.find(c => c.id === m.llm_config_id)
+  if (!cfg) return
+  const body = JSON.stringify({
+    models: cfg.models.map(x => ({
+      model_name: x.model_name,
+      is_enabled: x.id === m.id ? !m.is_enabled : x.is_enabled,
+      is_default: x.is_default,
+    })),
+  })
+  const res = await fetch(`/api/v1/llm-configs/${m.llm_config_id}/models`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
+  if (res.ok) {
+    await loadModelSettings()
+    await loadBooks()
+  }
+}
+
+async function setDefaultModel(id) {
+  const res = await fetch(`/api/v1/llm-models/${id}/default`, { method: 'POST' })
+  if (res.ok) {
+    await loadModelSettings()
+    await loadBooks()
+  }
+}
+
 </script>
 
 <style scoped>
@@ -1314,6 +1882,11 @@ function logout() {
 }
 .sidebar {
   width: 220px;
+  flex: 0 0 220px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
   background: #fff;
   border-right: 1px solid #e2e8f0;
   display: flex;
@@ -1350,39 +1923,25 @@ function logout() {
   background: #f1f5f9;
   border-left-color: #2563eb;
 }
-.sidebar-footer {
-  padding: 16px 20px;
-  border-top: 1px solid #e2e8f0;
+.nav-subitems {
+  display: grid;
+  gap: 4px;
+  padding: 4px 12px 10px 28px;
 }
-.user-info {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-.avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #2563eb, #1d4ed8);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  color: #fff;
-}
-.user-name { font-size: 14px; color: #1e293b; }
-.logout-btn {
-  width: 100%;
-  padding: 8px;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  background: transparent;
+.nav-subitem {
+  display: block;
+  padding: 8px 12px;
+  border-radius: 8px;
   color: #64748b;
-  cursor: pointer;
+  text-decoration: none;
   font-size: 13px;
+  font-weight: 600;
 }
-.logout-btn:hover { color: #dc2626; border-color: #dc2626; }
+.nav-subitem:hover,
+.nav-subitem.active {
+  color: #2563eb;
+  background: #eff6ff;
+}
 .main-content { flex: 1; display: flex; flex-direction: column; background: #fff; }
 .topbar {
   padding: 18px 32px;
@@ -1453,7 +2012,8 @@ function logout() {
   background: #fff;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 .data-table {
   width: 100%;
@@ -1565,7 +2125,8 @@ function logout() {
   color: #64748b;
 }
 .control-group select,
-.control-group input {
+.control-group input,
+.control-group textarea {
   padding: 8px 12px;
   border: 1px solid #e2e8f0;
   border-radius: 6px;
@@ -1573,10 +2134,18 @@ function logout() {
   color: #1e293b;
   font-size: 13px;
   outline: none;
+  font-family: inherit;
 }
 .control-group select:focus,
-.control-group input:focus { border-color: #2563eb; }
-.control-group input { width: 280px; }
+.control-group input:focus,
+.control-group textarea:focus { border-color: #2563eb; }
+.control-group input,
+.control-group textarea { width: 360px; }
+.control-group textarea {
+  min-height: 72px;
+  resize: vertical;
+  line-height: 1.6;
+}
 .write-btn {
   padding: 8px 24px;
   border: none;
@@ -2278,26 +2847,274 @@ function logout() {
   color: #334155;
 }
 
-.settings-section { max-width: 480px; }
+.settings-section {
+  width: 100%;
+  max-width: none;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.settings-hero,
 .settings-card {
   background: #fff;
   border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  overflow: hidden;
+  border-radius: 18px;
+  box-shadow: 0 1px 3px rgba(15,23,42,0.04);
 }
-.setting-item {
+.settings-hero {
   display: flex;
   justify-content: space-between;
+  gap: 24px;
   align-items: center;
-  padding: 20px 24px;
-  cursor: pointer;
-  transition: background 0.2s;
+  padding: 26px 28px;
 }
-.setting-item:hover { background: #f8fafc; }
-.setting-item + .setting-item { border-top: 1px solid #f1f5f9; }
-.setting-label { font-size: 15px; color: #1e293b; margin-bottom: 4px; }
-.setting-desc { font-size: 13px; color: #94a3b8; }
-.setting-arrow { color: #94a3b8; font-size: 16px; }
+.settings-hero h2 {
+  color: #1e293b;
+  font-size: 24px;
+  margin-bottom: 8px;
+}
+.settings-hero p,
+.settings-card-head p {
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.token-summary {
+  min-width: 180px;
+  padding: 16px 18px;
+  border-radius: 14px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+}
+.token-summary span {
+  display: block;
+  color: #64748b;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+.token-summary strong {
+  color: #1d4ed8;
+  font-size: 24px;
+}
+.token-summary em {
+  display: block;
+  margin-top: 6px;
+  color: #64748b;
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.6;
+}
+.settings-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.9fr) minmax(520px, 1.4fr);
+  gap: 20px;
+}
+.settings-card {
+  padding: 22px;
+}
+.settings-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.settings-card-head h3 {
+  color: #1e293b;
+  font-size: 17px;
+  margin-bottom: 6px;
+}
+.settings-message {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #f0fdf4;
+  color: #15803d;
+  font-size: 13px;
+}
+.empty-settings {
+  padding: 28px 18px;
+  color: #94a3b8;
+  text-align: center;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 12px;
+  font-size: 13px;
+}
+.token-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+.token-pill {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #64748b;
+  font-size: 12px;
+}
+.token-pill strong {
+  color: #1e293b;
+  font-size: 13px;
+}
+.token-pill em {
+  color: #94a3b8;
+  font-style: normal;
+  line-height: 1.6;
+}
+.agent-token-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+.agent-token-pill {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  color: #64748b;
+  font-size: 12px;
+}
+.agent-token-pill strong {
+  color: #1e293b;
+  font-size: 13px;
+}
+.agent-token-pill em {
+  color: #94a3b8;
+  font-style: normal;
+  line-height: 1.6;
+}
+.model-settings-card {
+  padding: 0;
+  overflow: hidden;
+}
+.model-settings-head {
+  padding: 22px;
+  margin-bottom: 0;
+  border-bottom: 1px solid #e2e8f0;
+}
+.provider-grid {
+  display: grid;
+  gap: 16px;
+  padding: 18px 22px 22px;
+}
+.provider-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  background: #fff;
+  overflow: hidden;
+}
+.provider-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  padding: 18px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+.provider-name {
+  color: #1e293b;
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.provider-url {
+  color: #64748b;
+  font-size: 12px;
+  word-break: break-all;
+}
+.test-box {
+  margin: 14px 18px 0;
+  padding: 14px;
+  border: 1px solid #fecaca;
+  border-radius: 12px;
+  background: #fef2f2;
+  color: #991b1b;
+  font-size: 13px;
+}
+.test-box.success {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #166534;
+}
+.test-title {
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+.model-check-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.model-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  background: #fff;
+  border: 1px solid #dcfce7;
+  border-radius: 999px;
+}
+.model-list {
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+}
+.model-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+}
+.model-item.disabled {
+  opacity: 0.62;
+  background: #f8fafc;
+}
+.model-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #1e293b;
+}
+.model-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  color: #64748b;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.default-badge,
+.disabled-badge {
+  display: inline-flex;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.default-badge {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.disabled-badge {
+  background: #f1f5f9;
+  color: #64748b;
+}
 
 .add-btn {
   padding: 8px 20px;
@@ -2322,15 +3139,6 @@ function logout() {
   transition: all 0.2s;
 }
 .view-btn:hover { color: #2563eb; border-color: #2563eb; }
-
-.type-tag {
-  display: inline-block;
-  padding: 2px 10px;
-  border-radius: 4px;
-  font-size: 12px;
-}
-.type-tag.public { background: rgba(37,99,235,0.08); color: #2563eb; }
-.type-tag.private { background: #f1f5f9; color: #64748b; }
 
 .action-group { display: flex; gap: 6px; }
 .table-actions {
@@ -2463,6 +3271,48 @@ function logout() {
 .step-label { font-size: 13px; color: #1e293b; font-weight: 500; }
 .step-desc { font-size: 12px; color: #64748b; margin-top: 2px; line-height: 1.5; }
 .step-msg { font-size: 12px; color: #2563eb; margin-top: 6px; font-weight: 500; }
+.run-token-card {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #eff6ff;
+}
+.run-token-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  color: #1e3a8a;
+  font-size: 13px;
+}
+.run-token-head strong {
+  font-size: 18px;
+}
+.run-token-meta {
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 12px;
+}
+.run-token-stages {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+.run-token-stage {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fff;
+  color: #475569;
+  font-size: 12px;
+}
+.run-token-stage strong {
+  color: #2563eb;
+}
 .progress-error {
   margin-top: 16px;
   padding: 12px;
@@ -2605,4 +3455,139 @@ function logout() {
 }
 .save-btn:hover:not(:disabled) { opacity: 0.9; }
 .save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.save-btn.sm { padding: 6px 12px; font-size: 12px; }
+
+@media (max-width: 1100px) {
+  .write-container {
+    flex-direction: column;
+  }
+  .sidebar {
+    width: 100%;
+    flex: none;
+    position: static;
+    height: auto;
+    overflow: visible;
+    border-right: none;
+    border-bottom: 1px solid #e2e8f0;
+    padding: 16px 0;
+  }
+  .sidebar-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 16px 20px 0;
+  }
+  .nav-item {
+    border-left: none;
+    border: 1px solid #e2e8f0;
+    border-radius: 999px;
+    padding: 8px 14px;
+  }
+  .nav-item:hover,
+  .nav-item.active {
+    border-left-color: transparent;
+    border-color: #2563eb;
+    background: rgba(37,99,235,0.08);
+  }
+  .nav-subitems {
+    display: flex;
+    flex-wrap: wrap;
+    padding: 0;
+    gap: 8px;
+  }
+  .nav-subitem {
+    border: 1px solid #e2e8f0;
+    border-radius: 999px;
+    padding: 8px 14px;
+  }
+  .topbar {
+    padding: 16px 20px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .content {
+    padding: 24px 16px;
+  }
+  .write-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .control-group input,
+  .control-group textarea {
+    width: 100%;
+  }
+  .book-meta {
+    gap: 16px;
+  }
+  .settings-hero,
+  .provider-header,
+  .model-item,
+  .model-settings-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+  .token-summary {
+    min-width: 0;
+  }
+  .book-meta-actions {
+    margin-left: 0;
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .state-grid,
+  .snapshot-grid {
+    grid-template-columns: 1fr;
+  }
+  .action-group,
+  .table-actions,
+  .chapter-actions,
+  .progress-actions {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 640px) {
+  .content {
+    padding: 16px 12px;
+  }
+  .empty-state {
+    padding: 48px 16px;
+  }
+  .book-tabs {
+    overflow-x: auto;
+  }
+  .book-tab {
+    white-space: nowrap;
+    flex: 0 0 auto;
+  }
+  .chapter-item {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .chapter-meta {
+    flex-wrap: wrap;
+  }
+  .truth-card,
+  .write-panel,
+  .book-meta {
+    padding: 14px;
+  }
+  .data-table th,
+  .data-table td {
+    padding: 12px 14px;
+    white-space: nowrap;
+  }
+  .modal,
+  .md-modal,
+  .chapter-modal,
+  .progress-modal {
+    width: min(94vw, 960px);
+    padding: 20px 16px;
+  }
+}
 </style>
