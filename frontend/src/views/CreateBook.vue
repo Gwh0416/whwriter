@@ -5,10 +5,6 @@
         <router-link to="/write" class="back-link">← 返回</router-link>
         <h1>创建新小说</h1>
       </div>
-      <div class="topbar-right">
-        <span class="user-name">{{ user?.username }}</span>
-        <button class="logout-btn" @click="logout">退出</button>
-      </div>
     </header>
 
     <main class="main-content">
@@ -28,14 +24,6 @@
           </div>
 
           <div class="form-row">
-            <div class="form-group">
-              <label>题材 <span class="required">*</span></label>
-              <select v-model="form.genre_id" required>
-                <option value="" disabled>请选择题材</option>
-                <option v-for="g in genres" :key="g.id" :value="g.id">{{ g.name }}</option>
-              </select>
-            </div>
-
             <div class="form-group">
               <label>目标平台 <span class="required">*</span></label>
               <select v-model="form.platform_id" required>
@@ -88,6 +76,27 @@
         </div>
 
         <div class="form-section">
+          <h3>番茄标签 <span class="required">*</span></h3>
+          <p class="hint">选择官方主题、角色和情节标签。写作时会加载这些标签下的“我的雷达”画像与规则。</p>
+          <div class="tag-type-tabs">
+            <button v-for="group in tagGroups" :key="group.key" type="button" :class="{ active: activeTagType === group.key }" @click="activeTagType = group.key">{{ group.label }}</button>
+          </div>
+          <div v-if="radarTags.length === 0" class="empty-tags">
+            暂无可写作标签。请先到「我的雷达」扫描书籍，生成画像后再聚合相关标签。
+          </div>
+          <div class="radar-tags">
+            <label v-for="tag in activeTags" :key="tag.tag_key" class="radar-tag" :class="{ active: form.radar_tags.includes(tag.tag_key) }">
+              <input type="checkbox" :value="tag.tag_key" v-model="form.radar_tags" />
+              <span>{{ tag.tag_name }}</span>
+            </label>
+          </div>
+          <div v-if="selectedTags.length" class="selected-tags">
+            <span>已选</span>
+            <button v-for="tag in selectedTags" :key="tag.tag_key" type="button" @click="removeTag(tag.tag_key)">{{ tag.tag_name }} ×</button>
+          </div>
+        </div>
+
+        <div class="form-section">
           <h3>AI 模型配置</h3>
           <div class="form-group">
             <label>写作模型</label>
@@ -100,7 +109,7 @@
               </optgroup>
             </select>
             <span class="hint" v-if="llmConfigs.length === 0">
-              暂无可用模型，请联系管理员配置
+              暂无可用模型，请先到「系统设置」配置模型
             </span>
           </div>
         </div>
@@ -119,43 +128,66 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
-const user = ref(null)
-const genres = ref([])
 const platforms = ref([])
 const llmConfigs = ref([])
+const radarTags = ref([])
 const submitting = ref(false)
 const error = ref('')
+const activeTagType = ref('plot')
 
 const form = reactive({
   title: '',
-  genre_id: '',
   platform_id: '',
   chapter_word_count: 3000,
   target_chapters: 200,
   description: '',
   llm_model_id: 0,
+  radar_tags: [],
 })
 
-const token = localStorage.getItem('token')
-const headers = { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }
+const headers = { 'Content-Type': 'application/json' }
+
+const tagGroups = computed(() => {
+  const groups = [
+    { key: 'plot', label: '情节', items: [] },
+    { key: 'role', label: '角色', items: [] },
+    { key: 'theme', label: '主题', items: [] },
+  ]
+  const byKey = Object.fromEntries(groups.map(group => [group.key, group]))
+  for (const tag of radarTags.value) {
+    const key = tag.tag_type || tag.category || 'plot'
+    ;(byKey[key] || byKey.plot).items.push(tag)
+  }
+  return groups
+})
+const activeTags = computed(() => tagGroups.value.find(group => group.key === activeTagType.value)?.items || [])
+const selectedTags = computed(() => {
+  const selected = new Set(form.radar_tags)
+  return radarTags.value.filter(tag => selected.has(tag.tag_key))
+})
+
+function removeTag(key) {
+  form.radar_tags = form.radar_tags.filter(item => item !== key)
+}
 
 onMounted(async () => {
   try {
-    const [userRes, genreRes, platformRes, llmRes] = await Promise.all([
-      fetch('/api/v1/me', { headers }),
-      fetch('/api/v1/genres', { headers }),
+    const [platformRes, llmRes, radarRes] = await Promise.all([
       fetch('/api/v1/platforms', { headers }),
       fetch('/api/v1/llm-configs', { headers }),
+      fetch('/api/v1/radar/taxonomies?ready_only=1', { headers }),
     ])
 
-    if (userRes.ok) user.value = await userRes.json()
-    if (genreRes.ok) genres.value = await genreRes.json()
     if (platformRes.ok) platforms.value = await platformRes.json()
     if (llmRes.ok) llmConfigs.value = await llmRes.json()
+    if (radarRes.ok) {
+      const radar = await radarRes.json()
+      radarTags.value = radar.tags || []
+    }
   } catch (e) {
     error.value = '加载配置失败，请刷新重试'
   }
@@ -163,6 +195,10 @@ onMounted(async () => {
 
 async function submit() {
   error.value = ''
+  if (!form.radar_tags.length) {
+    error.value = radarTags.value.length ? '请至少选择一个番茄标签' : '暂无可写作标签，请先到「我的雷达」生成画像并聚合相关标签'
+    return
+  }
   submitting.value = true
 
   const body = { ...form }
@@ -179,7 +215,7 @@ async function submit() {
       router.push('/write')
     } else {
       const data = await res.json()
-      error.value = data.error || '创建失败'
+      error.value = data.message || data.error?.message || data.error || '创建失败'
     }
   } catch (e) {
     error.value = '网络错误，请重试'
@@ -188,11 +224,6 @@ async function submit() {
   }
 }
 
-function logout() {
-  localStorage.removeItem('token')
-  localStorage.removeItem('role')
-  router.push('/login')
-}
 </script>
 
 <style scoped>
@@ -234,26 +265,6 @@ function logout() {
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
-
-.topbar-right {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.user-name { color: #64748b; font-size: 14px; }
-
-.logout-btn {
-  padding: 6px 16px;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  background: transparent;
-  color: #64748b;
-  cursor: pointer;
-  font-size: 13px;
-}
-
-.logout-btn:hover { color: #dc2626; border-color: #dc2626; }
 
 .main-content {
   flex: 1;
@@ -357,6 +368,90 @@ function logout() {
   text-align: right;
 }
 
+.tag-type-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 14px 0 12px;
+}
+
+.tag-type-tabs button {
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #475569;
+  border-radius: 999px;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.tag-type-tabs button.active {
+  color: #ea580c;
+  background: #fff1eb;
+  border-color: #fed7aa;
+}
+
+.radar-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  max-height: 180px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.empty-tags {
+  padding: 14px 16px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+  color: #64748b;
+  background: #f8fafc;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.radar-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.radar-tag.active {
+  color: #1d4ed8;
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
+.radar-tag input {
+  width: auto;
+}
+
+.selected-tags {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.selected-tags button {
+  border: none;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #2563eb;
+  padding: 5px 9px;
+  cursor: pointer;
+}
+
 .form-actions {
   display: flex;
   justify-content: flex-end;
@@ -410,10 +505,8 @@ function logout() {
     gap: 12px;
     padding: 16px 20px;
   }
-  .topbar-left,
-  .topbar-right {
+  .topbar-left {
     width: 100%;
-    justify-content: space-between;
   }
   .main-content {
     padding: 24px 16px;

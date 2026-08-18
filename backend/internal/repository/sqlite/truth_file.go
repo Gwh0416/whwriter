@@ -1,4 +1,4 @@
-package mysql
+package sqlite
 
 import (
 	"encoding/json"
@@ -11,6 +11,7 @@ import (
 	"errors"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type truthFileRepo struct {
@@ -236,7 +237,14 @@ func (r *truthFileRepo) GetChapterSnapshots(bookID uint) ([]model.ChapterSnapsho
 }
 
 func (r *truthFileRepo) SaveRuntimeArtifact(a *model.RuntimeArtifact) error {
-	return r.db.Save(a).Error
+	return r.db.Clauses(clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "book_id"},
+			{Name: "chapter_number"},
+			{Name: "artifact_type"},
+		},
+		DoUpdates: clause.AssignmentColumns([]string{"content"}),
+	}).Create(a).Error
 }
 
 func (r *truthFileRepo) GetRuntimeArtifacts(bookID uint, chapterNumber uint) ([]model.RuntimeArtifact, error) {

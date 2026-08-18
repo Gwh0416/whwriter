@@ -5,12 +5,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/lib.sh"
 
-require_cmd docker
 require_cmd go
 require_cmd npm
 require_cmd python3
-require_env MYSQL_ROOT_PASSWORD
-require_env MYSQL_PASSWORD
 
 cd "${PROJECT_DIR}"
 
@@ -19,12 +16,8 @@ if [[ -d .git ]]; then
   git pull
 fi
 
-echo "==> Backup MySQL before deploy"
-"${SCRIPT_DIR}/backup_mysql.sh"
-
-echo "==> Ensure Docker MySQL is running"
-compose_mysql up -d
-wait_mysql
+echo "==> Backup SQLite before deploy"
+"${SCRIPT_DIR}/backup_sqlite.sh"
 
 echo "==> Rewrite backend config from deploy/.env"
 write_backend_config

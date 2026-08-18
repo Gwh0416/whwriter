@@ -1,4 +1,4 @@
-package mysql
+package sqlite
 
 import (
 	"whwriter/backend/internal/model"
@@ -15,26 +15,6 @@ func NewGenreRepo(db *gorm.DB) repository.GenreRepository {
 	return &genreRepo{db: db}
 }
 
-func (r *genreRepo) ListBuiltin() ([]model.Genre, error) {
-	var genres []model.Genre
-	err := r.db.Where("user_id = 0 AND is_active = ?", true).Order("sort_order").Find(&genres).Error
-	return genres, err
-}
-
-func (r *genreRepo) ListByUser(userID uint) ([]model.Genre, error) {
-	var genres []model.Genre
-	err := r.db.Where("(user_id = 0 OR user_id = ?) AND is_active = ?", userID, true).
-		Order("sort_order").Find(&genres).Error
-	return genres, err
-}
-
-func (r *genreRepo) ListMyGenres(userID uint) ([]model.Genre, error) {
-	var genres []model.Genre
-	err := r.db.Where("(user_id = 0 OR user_id = ?)", userID).
-		Order("sort_order").Find(&genres).Error
-	return genres, err
-}
-
 func (r *genreRepo) FindByID(id uint) (*model.Genre, error) {
 	var genre model.Genre
 	err := r.db.First(&genre, id).Error
@@ -46,7 +26,7 @@ func (r *genreRepo) FindByID(id uint) (*model.Genre, error) {
 
 func (r *genreRepo) ListAll() ([]model.Genre, error) {
 	var genres []model.Genre
-	err := r.db.Order("sort_order").Find(&genres).Error
+	err := r.db.Where("is_active = ?", true).Order("sort_order").Find(&genres).Error
 	return genres, err
 }
 

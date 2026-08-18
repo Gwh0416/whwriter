@@ -12,9 +12,7 @@
         <button :class="{ active: activeSlide === 3 }" @click="goSlide(3)">记忆文件</button>
       </nav>
       <div class="nav-actions">
-        <router-link v-if="!token" to="/login" class="login-link">登录</router-link>
-        <router-link v-if="!token" to="/login?mode=register" class="primary-link">注册使用</router-link>
-        <router-link v-else :to="homePath" class="primary-link">进入工作台</router-link>
+        <router-link to="/write" class="primary-link">进入工作台</router-link>
       </div>
     </header>
 
@@ -32,9 +30,8 @@
                   适合需要长期维护人物、伏笔、状态和世界观的小说项目。
                 </p>
                 <div class="hero-actions">
-                  <router-link v-if="!token" to="/login?mode=register" class="cta">开始创作</router-link>
-                  <router-link v-else :to="homePath" class="cta">进入工作台</router-link>
-                  <router-link to="/login" class="ghost">已有账号登录</router-link>
+                  <router-link to="/write" class="cta">进入工作台</router-link>
+                  <button class="ghost" type="button" @click="goSlide(1)">查看能力</button>
                 </div>
                 <div class="hero-metrics">
                   <div><strong>10</strong><span>写作环节</span></div>
@@ -179,9 +176,6 @@
 <script setup>
 import { computed, ref } from 'vue'
 
-const token = localStorage.getItem('token')
-const role = localStorage.getItem('role')
-const homePath = computed(() => (role === 'admin' ? '/admin' : '/write'))
 const activeSlide = ref(0)
 const activeMemoryTab = ref('foundations')
 const slides = ['首页', '功能', '流程', '记忆文件']
@@ -191,9 +185,9 @@ const features = [
   { icon: '📚', title: '长篇上下文编排', desc: '自动整理设定、人物、伏笔和最近章节摘要，减少前后文断裂。' },
   { icon: '🧭', title: '多 Agent 写作链路', desc: '规划、创作、审查、修订、润色和结算分工明确，方便定位问题。' },
   { icon: '🗂️', title: '记忆文件系统', desc: '把当前状态、长期设定、证据笔记和章节快照分层保存。' },
-  { icon: '🏷️', title: '自定义题材', desc: '用户可自定义题材画像，创建书籍时直接套用。' },
+  { icon: '📡', title: '雷达写法学习', desc: '按番茄官方标签扫描书籍，沉淀单书画像、标签画像和写作规则。' },
   { icon: '🤖', title: '多模型支持', desc: '支持多个热门大模型，并可按书选择具体写作模型。' },
-  { icon: '📰', title: '多平台风格支持', desc: '可按目标平台切换风格约束，让节奏和表达更贴近不同平台读者。' },
+  { icon: '🏷️', title: '标签规则注入', desc: '创建书籍时选择已有画像和规则的标签，写作时按标签加载精选指导。' },
   { icon: '⏯️', title: '写作运行控制', desc: '写作 run 失败后可取消、从当前节点重试，灵活控制。' },
     { icon: '↩️', title: '章节回滚与重写', desc: '支持删除或重写最后一章，并把相关状态恢复到正确快照。' },
   { icon: '📦', title: '书籍导出', desc: '支持多种格式书籍导出，方便整理、备份和后续发布。' },

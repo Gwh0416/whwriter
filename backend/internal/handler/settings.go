@@ -11,14 +11,13 @@ import (
 	"whwriter/backend/internal/model"
 
 	"whwriter/backend/internal/repository"
-	"whwriter/backend/internal/repository/mysql"
+	"whwriter/backend/internal/repository/sqlite"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
-type AdminHandler struct {
-	userRepo      repository.UserRepository
+type SettingsHandler struct {
 	genreRepo     repository.GenreRepository
 	platformRepo  repository.PlatformRepository
 	llmConfigRepo repository.LLMConfigRepository
@@ -26,51 +25,26 @@ type AdminHandler struct {
 	db            *gorm.DB
 }
 
-func NewAdminHandler(userRepo repository.UserRepository, genreRepo repository.GenreRepository, platformRepo repository.PlatformRepository, llmConfigRepo repository.LLMConfigRepository, llmModelRepo repository.LLMModelRepository, db *gorm.DB) *AdminHandler {
-	return &AdminHandler{userRepo: userRepo, genreRepo: genreRepo, platformRepo: platformRepo, llmConfigRepo: llmConfigRepo, llmModelRepo: llmModelRepo, db: db}
+func NewSettingsHandler(genreRepo repository.GenreRepository, platformRepo repository.PlatformRepository, llmConfigRepo repository.LLMConfigRepository, llmModelRepo repository.LLMModelRepository, db *gorm.DB) *SettingsHandler {
+	return &SettingsHandler{genreRepo: genreRepo, platformRepo: platformRepo, llmConfigRepo: llmConfigRepo, llmModelRepo: llmModelRepo, db: db}
 }
 
-func (h *AdminHandler) GetStats(c *gin.Context) {
-	stats, err := h.userRepo.GetStats()
-	if err != nil {
-		ErrStatsFailed.JSON(c)
-		return
-	}
-	c.JSON(http.StatusOK, stats)
+func (h *SettingsHandler) GetStats(c *gin.Context) {
+	var activeBooks int64
+	var totalChapters int64
+	h.db.Model(&model.Book{}).Where("status = ?", model.BookStatusActive).Count(&activeBooks)
+	h.db.Model(&model.Chapter{}).Count(&totalChapters)
+	c.JSON(http.StatusOK, repository.DashboardStats{ActiveBooks: activeBooks, TotalChapters: totalChapters})
 }
 
-func (h *AdminHandler) ListUsers(c *gin.Context) {
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
-
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 || pageSize > 100 {
-		pageSize = 20
-	}
-
-	users, total, err := h.userRepo.ListUsers(page, pageSize)
-	if err != nil {
-		ErrUserListFailed.JSON(c)
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"users":     users,
-		"total":     total,
-		"page":      page,
-		"page_size": pageSize,
-	})
-}
-
-func (h *AdminHandler) Initialize(c *gin.Context) {
-	mysql.SeedGenres(h.db)
-	mysql.SeedPlatforms(h.db)
+func (h *SettingsHandler) Initialize(c *gin.Context) {
+	sqlite.SeedGenres(h.db)
+	sqlite.SeedRadarTaxonomies(h.db)
+	sqlite.SeedPlatforms(h.db)
 	c.JSON(http.StatusOK, gin.H{"message": "基础数据初始化完成"})
 }
 
-func (h *AdminHandler) ListGenres(c *gin.Context) {
+func (h *SettingsHandler) ListGenres(c *gin.Context) {
 	genres, err := h.genreRepo.ListAll()
 	if err != nil {
 		ErrGenreListFailed.JSON(c)
@@ -79,7 +53,7 @@ func (h *AdminHandler) ListGenres(c *gin.Context) {
 	c.JSON(http.StatusOK, genres)
 }
 
-func (h *AdminHandler) CreateGenre(c *gin.Context) {
+func (h *SettingsHandler) CreateGenre(c *gin.Context) {
 	var genre model.Genre
 	if err := c.ShouldBindJSON(&genre); err != nil {
 		ErrBadRequest.JSON(c)
@@ -92,7 +66,7 @@ func (h *AdminHandler) CreateGenre(c *gin.Context) {
 	c.JSON(http.StatusOK, genre)
 }
 
-func (h *AdminHandler) UpdateGenre(c *gin.Context) {
+func (h *SettingsHandler) UpdateGenre(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		ErrInvalidID.JSON(c)
@@ -111,7 +85,7 @@ func (h *AdminHandler) UpdateGenre(c *gin.Context) {
 	c.JSON(http.StatusOK, genre)
 }
 
-func (h *AdminHandler) DeleteGenre(c *gin.Context) {
+func (h *SettingsHandler) DeleteGenre(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		ErrInvalidID.JSON(c)
@@ -124,64 +98,7 @@ func (h *AdminHandler) DeleteGenre(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "删除成功"})
 }
 
-func (h *AdminHandler) UpdateUserStatus(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil {
-		ErrInvalidID.JSON(c)
-		return
-	}
-
-	var body struct {
-		Status string `json:"status"`
-	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		ErrBadRequest.JSON(c)
-		return
-	}
-
-	status := model.UserStatus(body.Status)
-	if status != model.UserStatusActive && status != model.UserStatusDisabled {
-		ErrInvalidStatus.JSON(c)
-		return
-	}
-
-	if err := h.userRepo.UpdateStatus(uint(id), status); err != nil {
-		ErrUpdateStatusFailed.JSON(c)
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "状态更新成功"})
-}
-
-func (h *AdminHandler) AddBalance(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil {
-		ErrInvalidID.JSON(c)
-		return
-	}
-
-	var body struct {
-		Amount int64 `json:"amount"`
-	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		ErrBadRequest.JSON(c)
-		return
-	}
-
-	if body.Amount == 0 {
-		ErrAmountZero.JSON(c)
-		return
-	}
-
-	if err := h.userRepo.AddBalance(uint(id), body.Amount); err != nil {
-		ErrRechargeFailed.JSON(c)
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "充值成功"})
-}
-
-func (h *AdminHandler) ListPlatforms(c *gin.Context) {
+func (h *SettingsHandler) ListPlatforms(c *gin.Context) {
 	platforms, err := h.platformRepo.ListAll()
 	if err != nil {
 		ErrPlatformListFailed.JSON(c)
@@ -190,7 +107,7 @@ func (h *AdminHandler) ListPlatforms(c *gin.Context) {
 	c.JSON(http.StatusOK, platforms)
 }
 
-func (h *AdminHandler) CreatePlatform(c *gin.Context) {
+func (h *SettingsHandler) CreatePlatform(c *gin.Context) {
 	var platform model.Platform
 	if err := c.ShouldBindJSON(&platform); err != nil {
 		ErrBadRequest.JSON(c)
@@ -203,7 +120,7 @@ func (h *AdminHandler) CreatePlatform(c *gin.Context) {
 	c.JSON(http.StatusOK, platform)
 }
 
-func (h *AdminHandler) UpdatePlatform(c *gin.Context) {
+func (h *SettingsHandler) UpdatePlatform(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		ErrInvalidID.JSON(c)
@@ -222,7 +139,7 @@ func (h *AdminHandler) UpdatePlatform(c *gin.Context) {
 	c.JSON(http.StatusOK, platform)
 }
 
-func (h *AdminHandler) DeletePlatform(c *gin.Context) {
+func (h *SettingsHandler) DeletePlatform(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		ErrInvalidID.JSON(c)
@@ -235,7 +152,7 @@ func (h *AdminHandler) DeletePlatform(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "删除成功"})
 }
 
-func (h *AdminHandler) ListLLMConfigs(c *gin.Context) {
+func (h *SettingsHandler) ListLLMConfigs(c *gin.Context) {
 	configs, err := h.llmConfigRepo.ListAllWithModels()
 	if err != nil {
 		ErrLLMConfigFailed.JSON(c)
@@ -244,13 +161,16 @@ func (h *AdminHandler) ListLLMConfigs(c *gin.Context) {
 
 	usageMap, err := h.llmModelRepo.GetTokenUsageByModel()
 	if err != nil {
-		usageMap = make(map[uint]int64)
+		usageMap = make(map[uint]model.TokenUsageSummary)
 	}
 
 	for i := range configs {
 		for j := range configs[i].Models {
 			if usage, ok := usageMap[configs[i].Models[j].ID]; ok {
-				configs[i].Models[j].TokenUsage = usage
+				configs[i].Models[j].PromptTokens = usage.PromptTokens
+				configs[i].Models[j].CompletionTokens = usage.CompletionTokens
+				configs[i].Models[j].CachedTokens = usage.CachedTokens
+				configs[i].Models[j].TokenUsage = usage.TotalTokens
 			}
 		}
 	}
@@ -258,7 +178,7 @@ func (h *AdminHandler) ListLLMConfigs(c *gin.Context) {
 	c.JSON(http.StatusOK, configs)
 }
 
-func (h *AdminHandler) CreateLLMConfig(c *gin.Context) {
+func (h *SettingsHandler) CreateLLMConfig(c *gin.Context) {
 	var body struct {
 		Provider string `json:"provider"`
 		Label    string `json:"label"`
@@ -282,7 +202,7 @@ func (h *AdminHandler) CreateLLMConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, config)
 }
 
-func (h *AdminHandler) UpdateLLMConfig(c *gin.Context) {
+func (h *SettingsHandler) UpdateLLMConfig(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		ErrInvalidID.JSON(c)
@@ -320,7 +240,7 @@ func (h *AdminHandler) UpdateLLMConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, existing)
 }
 
-func (h *AdminHandler) DeleteLLMConfig(c *gin.Context) {
+func (h *SettingsHandler) DeleteLLMConfig(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		ErrInvalidID.JSON(c)
@@ -337,7 +257,7 @@ func (h *AdminHandler) DeleteLLMConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "删除成功"})
 }
 
-func (h *AdminHandler) TestLLMConnection(c *gin.Context) {
+func (h *SettingsHandler) TestLLMConnection(c *gin.Context) {
 	var body struct {
 		ConfigID uint   `json:"config_id"`
 		BaseURL  string `json:"base_url"`
@@ -408,7 +328,7 @@ func (h *AdminHandler) TestLLMConnection(c *gin.Context) {
 	})
 }
 
-func (h *AdminHandler) SaveLLMModels(c *gin.Context) {
+func (h *SettingsHandler) SaveLLMModels(c *gin.Context) {
 	configID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		ErrInvalidID.JSON(c)
@@ -448,7 +368,7 @@ func (h *AdminHandler) SaveLLMModels(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "保存成功"})
 }
 
-func (h *AdminHandler) SetDefaultModel(c *gin.Context) {
+func (h *SettingsHandler) SetDefaultModel(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		ErrInvalidID.JSON(c)
@@ -461,7 +381,7 @@ func (h *AdminHandler) SetDefaultModel(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "已设为默认模型"})
 }
 
-func (h *AdminHandler) GetTokenUsageStats(c *gin.Context) {
+func (h *SettingsHandler) GetTokenUsageStats(c *gin.Context) {
 	configs, err := h.llmConfigRepo.ListAllWithModels()
 	if err != nil {
 		ErrLLMUsageFailed.JSON(c)
@@ -480,29 +400,45 @@ func (h *AdminHandler) GetTokenUsageStats(c *gin.Context) {
 		return
 	}
 
+	agentUsage, err := h.llmModelRepo.GetTokenUsageByAgent()
+	if err != nil {
+		agentUsage = []model.AgentTokenUsageSummary{}
+	}
+
 	type modelUsage struct {
-		ID         uint   `json:"id"`
-		ConfigID   uint   `json:"config_id"`
-		Provider   string `json:"provider"`
-		ModelName  string `json:"model_name"`
-		TokenUsage int64  `json:"token_usage"`
+		ID               uint   `json:"id"`
+		ConfigID         uint   `json:"config_id"`
+		Provider         string `json:"provider"`
+		ModelName        string `json:"model_name"`
+		PromptTokens     int64  `json:"prompt_tokens"`
+		CompletionTokens int64  `json:"completion_tokens"`
+		CachedTokens     int64  `json:"cached_tokens"`
+		TokenUsage       int64  `json:"token_usage"`
 	}
 
 	var details []modelUsage
 	for _, cfg := range configs {
 		for _, m := range cfg.Models {
+			usage := usageMap[m.ID]
 			details = append(details, modelUsage{
-				ID:         m.ID,
-				ConfigID:   cfg.ID,
-				Provider:   cfg.Label,
-				ModelName:  m.ModelName,
-				TokenUsage: usageMap[m.ID],
+				ID:               m.ID,
+				ConfigID:         cfg.ID,
+				Provider:         cfg.Label,
+				ModelName:        m.ModelName,
+				PromptTokens:     usage.PromptTokens,
+				CompletionTokens: usage.CompletionTokens,
+				CachedTokens:     usage.CachedTokens,
+				TokenUsage:       usage.TotalTokens,
 			})
 		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"total_usage": totalUsage,
-		"details":     details,
+		"total_usage":       totalUsage.TotalTokens,
+		"prompt_tokens":     totalUsage.PromptTokens,
+		"completion_tokens": totalUsage.CompletionTokens,
+		"cached_tokens":     totalUsage.CachedTokens,
+		"details":           details,
+		"by_agent":          agentUsage,
 	})
 }

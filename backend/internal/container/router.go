@@ -8,15 +8,13 @@ import (
 )
 
 func SetupRouter(c *Container) *gin.Engine {
-	cfg := c.Config
-
-	if !cfg.IsDev() {
+	if !c.Config.IsDev() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
 	r := gin.New()
 
-	r.Use(middleware.Logger())
+	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
 	r.Use(middleware.CORS())
 
@@ -35,92 +33,77 @@ func SetupRouter(c *Container) *gin.Engine {
 		}
 	})
 
-	authHandler := handler.NewAuthHandler(c.AuthSvc)
 	resourceHandler := handler.NewResourceHandler(c.GenreRepo, c.PlatformRepo, c.LLMModelRepo, c.LLMConfigRepo)
-	bookHandler := handler.NewBookHandler(c.BookRepo, c.TruthFileRepo, c.Pipeline)
-	adminHandler := handler.NewAdminHandler(c.UserRepo, c.GenreRepo, c.PlatformRepo, c.LLMConfigRepo, c.LLMModelRepo, c.DB)
+	bookHandler := handler.NewBookHandler(c.BookRepo, c.TruthFileRepo, c.Pipeline, c.RadarRepo)
+	radarHandler := handler.NewRadarHandler(c.RadarSvc)
+	settingsHandler := handler.NewSettingsHandler(c.GenreRepo, c.PlatformRepo, c.LLMConfigRepo, c.LLMModelRepo, c.DB)
 
 	api := r.Group("/api/v1")
 	{
 		api.GET("/ping", handler.Ping)
 
-		auth := api.Group("/auth")
 		{
-			auth.POST("/send-code", authHandler.SendCode)
-			auth.POST("/register", authHandler.Register)
-			auth.POST("/login", authHandler.Login)
-		}
+			api.POST("/initialize", settingsHandler.Initialize)
+			api.GET("/stats", settingsHandler.GetStats)
 
-		protected := api.Group("")
-		protected.Use(middleware.Auth(cfg))
-		{
-			protected.GET("/me", func(c *gin.Context) {
-				c.JSON(200, gin.H{
-					"user_id":  c.GetUint("user_id"),
-					"email":    c.GetString("email"),
-					"username": c.GetString("username"),
-					"role":     c.GetString("role"),
-				})
-			})
+			api.GET("/genres", resourceHandler.ListGenres)
+			api.POST("/genres", settingsHandler.CreateGenre)
+			api.PUT("/genres/:id", settingsHandler.UpdateGenre)
+			api.DELETE("/genres/:id", settingsHandler.DeleteGenre)
 
-			protected.POST("/auth/send-change-password-code", authHandler.SendChangePasswordCode)
-			protected.POST("/auth/change-password", authHandler.ChangePassword)
+			api.GET("/platforms", resourceHandler.ListPlatforms)
+			api.POST("/platforms", settingsHandler.CreatePlatform)
+			api.PUT("/platforms/:id", settingsHandler.UpdatePlatform)
+			api.DELETE("/platforms/:id", settingsHandler.DeletePlatform)
 
-			protected.GET("/genres", resourceHandler.ListGenres)
-			protected.GET("/my-genres", resourceHandler.ListMyGenres)
-			protected.POST("/my-genres", resourceHandler.CreateMyGenre)
-			protected.PUT("/my-genres/:id", resourceHandler.UpdateMyGenre)
-			protected.DELETE("/my-genres/:id", resourceHandler.DeleteMyGenre)
-			protected.GET("/platforms", resourceHandler.ListPlatforms)
-			protected.GET("/llm-configs", resourceHandler.ListLLMConfigs)
+			api.GET("/llm-configs", settingsHandler.ListLLMConfigs)
+			api.GET("/llm-configs/token-usage", settingsHandler.GetTokenUsageStats)
+			api.POST("/llm-configs/test-connection", settingsHandler.TestLLMConnection)
+			api.POST("/llm-configs", settingsHandler.CreateLLMConfig)
+			api.PUT("/llm-configs/:id", settingsHandler.UpdateLLMConfig)
+			api.DELETE("/llm-configs/:id", settingsHandler.DeleteLLMConfig)
+			api.POST("/llm-configs/:id/models", settingsHandler.SaveLLMModels)
+			api.POST("/llm-models/:id/default", settingsHandler.SetDefaultModel)
 
-			protected.POST("/books", bookHandler.Create)
-			protected.GET("/books", bookHandler.List)
-			protected.GET("/books/:id", bookHandler.Get)
-			protected.DELETE("/books/:id", bookHandler.Delete)
-			protected.POST("/books/:id/write", bookHandler.WriteChapter)
-			protected.POST("/books/:id/write-runs", bookHandler.StartWriteRun)
-			protected.GET("/books/:id/write-runs", bookHandler.ListWriteRuns)
-			protected.GET("/books/:id/write-runs/active", bookHandler.GetActiveWriteRun)
-			protected.GET("/books/:id/chapters/:chapter", bookHandler.GetChapter)
-			protected.DELETE("/books/:id/chapters/:chapter", bookHandler.DeleteChapter)
-			protected.GET("/books/:id/truth-files", bookHandler.GetTruthFiles)
-			protected.GET("/books/:id/export", bookHandler.ExportBook)
-			protected.GET("/books/:id/chapters/:chapter/artifacts", bookHandler.GetChapterArtifacts)
-			protected.GET("/write-runs/:runID", bookHandler.GetWriteRun)
-			protected.GET("/write-runs/:runID/stages", bookHandler.GetWriteRunStages)
-			protected.POST("/write-runs/:runID/cancel", bookHandler.CancelWriteRun)
-			protected.POST("/write-runs/:runID/retry", bookHandler.RetryWriteRun)
+			api.GET("/radar/overview", radarHandler.Overview)
+			api.GET("/radar/taxonomies", radarHandler.ListTaxonomies)
+			api.GET("/radar/browser/check", radarHandler.CheckBrowserSession)
+			api.POST("/radar/browser/open", radarHandler.OpenBrowserLoginPage)
+			api.POST("/radar/sources", radarHandler.CreateSource)
+			api.POST("/radar/sources/delete", radarHandler.DeleteSources)
+			api.DELETE("/radar/sources/:id", radarHandler.DeleteSource)
+			api.POST("/radar/sources/:id/analyze", radarHandler.AnalyzeSource)
+			api.GET("/radar/sources/:id/chapters", radarHandler.ListSourceChapters)
+			api.POST("/radar/categories/analyze", radarHandler.AnalyzeCategory)
+			api.POST("/radar/intros/scan", radarHandler.ScanIntroSamples)
+			api.POST("/radar/intros/generate", radarHandler.GenerateIntro)
+			api.POST("/radar/intros/delete", radarHandler.DeleteIntroSamples)
+			api.DELETE("/radar/intros/:id", radarHandler.DeleteIntroSample)
+			api.POST("/radar/scan-jobs", radarHandler.CreateScanJob)
+			api.DELETE("/radar/scan-jobs/:id", radarHandler.DeleteScanJob)
+			api.POST("/radar/profiles/delete", radarHandler.DeleteTaxonomyProfiles)
+			api.DELETE("/radar/profiles/:id", radarHandler.DeleteTaxonomyProfile)
+			api.POST("/radar/rules/delete", radarHandler.DeleteRules)
+			api.DELETE("/radar/rules/:id", radarHandler.DeleteRule)
+			api.POST("/radar/synthesize", radarHandler.Synthesize)
 
-			admin := protected.Group("/admin")
-			admin.Use(middleware.AdminOnly())
-			{
-				admin.GET("/stats", adminHandler.GetStats)
-				admin.GET("/users", adminHandler.ListUsers)
-				admin.POST("/initialize", adminHandler.Initialize)
-
-				admin.PUT("/users/:id/status", adminHandler.UpdateUserStatus)
-				admin.POST("/users/:id/balance", adminHandler.AddBalance)
-
-				admin.GET("/genres", adminHandler.ListGenres)
-				admin.POST("/genres", adminHandler.CreateGenre)
-				admin.PUT("/genres/:id", adminHandler.UpdateGenre)
-				admin.DELETE("/genres/:id", adminHandler.DeleteGenre)
-
-				admin.GET("/platforms", adminHandler.ListPlatforms)
-				admin.POST("/platforms", adminHandler.CreatePlatform)
-				admin.PUT("/platforms/:id", adminHandler.UpdatePlatform)
-				admin.DELETE("/platforms/:id", adminHandler.DeletePlatform)
-
-				admin.GET("/llm-configs", adminHandler.ListLLMConfigs)
-				admin.GET("/llm-configs/token-usage", adminHandler.GetTokenUsageStats)
-				admin.POST("/llm-configs/test-connection", adminHandler.TestLLMConnection)
-				admin.POST("/llm-configs", adminHandler.CreateLLMConfig)
-				admin.PUT("/llm-configs/:id", adminHandler.UpdateLLMConfig)
-				admin.DELETE("/llm-configs/:id", adminHandler.DeleteLLMConfig)
-				admin.POST("/llm-configs/:id/models", adminHandler.SaveLLMModels)
-				admin.POST("/llm-models/:id/default", adminHandler.SetDefaultModel)
-			}
+			api.POST("/books", bookHandler.Create)
+			api.GET("/books", bookHandler.List)
+			api.GET("/books/:id", bookHandler.Get)
+			api.DELETE("/books/:id", bookHandler.Delete)
+			api.POST("/books/:id/write", bookHandler.WriteChapter)
+			api.POST("/books/:id/write-runs", bookHandler.StartWriteRun)
+			api.GET("/books/:id/write-runs", bookHandler.ListWriteRuns)
+			api.GET("/books/:id/write-runs/active", bookHandler.GetActiveWriteRun)
+			api.GET("/books/:id/chapters/:chapter", bookHandler.GetChapter)
+			api.DELETE("/books/:id/chapters/:chapter", bookHandler.DeleteChapter)
+			api.GET("/books/:id/truth-files", bookHandler.GetTruthFiles)
+			api.GET("/books/:id/export", bookHandler.ExportBook)
+			api.GET("/books/:id/chapters/:chapter/artifacts", bookHandler.GetChapterArtifacts)
+			api.GET("/write-runs/:runID", bookHandler.GetWriteRun)
+			api.GET("/write-runs/:runID/stages", bookHandler.GetWriteRunStages)
+			api.POST("/write-runs/:runID/cancel", bookHandler.CancelWriteRun)
+			api.POST("/write-runs/:runID/retry", bookHandler.RetryWriteRun)
 		}
 	}
 

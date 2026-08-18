@@ -19,11 +19,16 @@ import (
 type BookHandler struct {
 	bookRepo  repository.BookRepository
 	truthRepo repository.TruthFileRepository
+	radarRepo repository.RadarRepository
 	pipeline  *pipeline.Pipeline
 }
 
-func NewBookHandler(bookRepo repository.BookRepository, truthRepo repository.TruthFileRepository, pl *pipeline.Pipeline) *BookHandler {
-	return &BookHandler{bookRepo: bookRepo, truthRepo: truthRepo, pipeline: pl}
+func NewBookHandler(bookRepo repository.BookRepository, truthRepo repository.TruthFileRepository, pl *pipeline.Pipeline, radarRepo ...repository.RadarRepository) *BookHandler {
+	var rr repository.RadarRepository
+	if len(radarRepo) > 0 {
+		rr = radarRepo[0]
+	}
+	return &BookHandler{bookRepo: bookRepo, truthRepo: truthRepo, radarRepo: rr, pipeline: pl}
 }
 
 func (h *BookHandler) Create(c *gin.Context) {
@@ -37,11 +42,12 @@ func (h *BookHandler) Create(c *gin.Context) {
 		ErrJSON(c, http.StatusBadRequest, CodeIncompleteBook, "每章字数与目标章数必须为正数")
 		return
 	}
-
-	userID := c.GetUint("user_id")
+	if len(req.RadarTags) == 0 {
+		ErrJSON(c, http.StatusBadRequest, CodeIncompleteBook, "请选择至少一个番茄官方标签")
+		return
+	}
 
 	book := &model.Book{
-		UserID:           userID,
 		Title:            req.Title,
 		GenreID:          req.GenreID,
 		PlatformID:       req.PlatformID,
@@ -56,6 +62,23 @@ func (h *BookHandler) Create(c *gin.Context) {
 	if err := h.bookRepo.Create(book); err != nil {
 		ErrBookCreateFailed.JSON(c)
 		return
+	}
+
+	if h.radarRepo != nil {
+		tagsJSON := "[]"
+		if payload, err := json.Marshal(req.RadarTags); err == nil {
+			tagsJSON = string(payload)
+		}
+		primaryTag := strings.TrimSpace(req.RadarCategory)
+		if primaryTag == "" && len(req.RadarTags) > 0 {
+			primaryTag = strings.TrimSpace(req.RadarTags[0])
+		}
+		_ = h.radarRepo.SaveBookSetting(&model.RadarBookSetting{
+			BookID:   book.ID,
+			Platform: model.RadarPlatformFanqie,
+			Category: primaryTag,
+			TagsJSON: tagsJSON,
+		})
 	}
 
 	if err := h.pipeline.InitBook(c.Request.Context(), pipeline.InitBookInput{BookID: book.ID}); err != nil {
@@ -79,8 +102,7 @@ func (h *BookHandler) Create(c *gin.Context) {
 }
 
 func (h *BookHandler) List(c *gin.Context) {
-	userID := c.GetUint("user_id")
-	books, err := h.bookRepo.ListByUser(userID)
+	books, err := h.bookRepo.List()
 	if err != nil {
 		ErrBookListFailed.JSON(c)
 		return
@@ -101,12 +123,6 @@ func (h *BookHandler) Get(c *gin.Context) {
 		return
 	}
 
-	userID := c.GetUint("user_id")
-	if book.UserID != userID {
-		ErrForbidden.JSON(c)
-		return
-	}
-
 	chapters, _ := h.truthRepo.ListChapters(uint(id))
 
 	c.JSON(http.StatusOK, gin.H{
@@ -122,15 +138,8 @@ func (h *BookHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	book, err := h.truthRepo.GetBook(uint(id))
-	if err != nil {
+	if _, err := h.truthRepo.GetBook(uint(id)); err != nil {
 		ErrInvalidID.JSON(c)
-		return
-	}
-
-	userID := c.GetUint("user_id")
-	if book.UserID != userID {
-		ErrForbidden.JSON(c)
 		return
 	}
 
@@ -152,12 +161,6 @@ func (h *BookHandler) WriteChapter(c *gin.Context) {
 	book, err := h.truthRepo.GetBook(uint(id))
 	if err != nil {
 		ErrInvalidID.JSON(c)
-		return
-	}
-
-	userID := c.GetUint("user_id")
-	if book.UserID != userID {
-		ErrForbidden.JSON(c)
 		return
 	}
 
@@ -258,15 +261,8 @@ func (h *BookHandler) GetChapter(c *gin.Context) {
 		return
 	}
 
-	book, err := h.truthRepo.GetBook(uint(bookID))
-	if err != nil {
+	if _, err := h.truthRepo.GetBook(uint(bookID)); err != nil {
 		ErrInvalidID.JSON(c)
-		return
-	}
-
-	userID := c.GetUint("user_id")
-	if book.UserID != userID {
-		ErrForbidden.JSON(c)
 		return
 	}
 
@@ -286,15 +282,8 @@ func (h *BookHandler) DeleteChapter(c *gin.Context) {
 		return
 	}
 
-	book, err := h.truthRepo.GetBook(uint(bookID))
-	if err != nil {
+	if _, err := h.truthRepo.GetBook(uint(bookID)); err != nil {
 		ErrInvalidID.JSON(c)
-		return
-	}
-
-	userID := c.GetUint("user_id")
-	if book.UserID != userID {
-		ErrForbidden.JSON(c)
 		return
 	}
 
@@ -327,15 +316,8 @@ func (h *BookHandler) GetTruthFiles(c *gin.Context) {
 		return
 	}
 
-	book, err := h.truthRepo.GetBook(uint(id))
-	if err != nil {
+	if _, err := h.truthRepo.GetBook(uint(id)); err != nil {
 		ErrInvalidID.JSON(c)
-		return
-	}
-
-	userID := c.GetUint("user_id")
-	if book.UserID != userID {
-		ErrForbidden.JSON(c)
 		return
 	}
 
@@ -371,15 +353,8 @@ func (h *BookHandler) GetChapterArtifacts(c *gin.Context) {
 		return
 	}
 
-	book, err := h.truthRepo.GetBook(uint(bookID))
-	if err != nil {
+	if _, err := h.truthRepo.GetBook(uint(bookID)); err != nil {
 		ErrInvalidID.JSON(c)
-		return
-	}
-
-	userID := c.GetUint("user_id")
-	if book.UserID != userID {
-		ErrForbidden.JSON(c)
 		return
 	}
 
@@ -400,12 +375,6 @@ func (h *BookHandler) ExportBook(c *gin.Context) {
 	book, err := h.truthRepo.GetBook(uint(id))
 	if err != nil {
 		ErrInvalidID.JSON(c)
-		return
-	}
-
-	userID := c.GetUint("user_id")
-	if book.UserID != userID {
-		ErrForbidden.JSON(c)
 		return
 	}
 

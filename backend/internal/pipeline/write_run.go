@@ -16,6 +16,8 @@ import (
 
 var errWriteRunCancelled = errors.New("write run cancelled")
 
+const maxWriteStageAttempts = 3
+
 type StartWriteRunInput struct {
 	BookID      uint
 	ModelID     uint
@@ -30,6 +32,7 @@ type writeRunState struct {
 	OriginalChapter *model.Chapter
 	ChapterNumber   uint
 	ContextPkg      string
+	Composed        *agent.ComposeOutput
 	Memo            string
 	Title           string
 	Content         string
@@ -42,12 +45,30 @@ type writeRunState struct {
 	FinalizedSource string
 }
 
+type stageTokenSummary struct {
+	AgentName        string `json:"agent_name"`
+	PromptTokens     int64  `json:"prompt_tokens"`
+	CompletionTokens int64  `json:"completion_tokens"`
+	CachedTokens     int64  `json:"cached_tokens"`
+	TotalTokens      int64  `json:"total_tokens"`
+}
+
+type stageRunMeta struct {
+	Attempt      uint                `json:"attempt,omitempty"`
+	MaxAttempts  uint                `json:"max_attempts,omitempty"`
+	TokenSummary []stageTokenSummary `json:"token_summary,omitempty"`
+}
+
 type stageContextPayload struct {
-	Context string `json:"context"`
+	Context string       `json:"context"`
+	Meta    stageRunMeta `json:"meta,omitempty"`
 }
 
 type stagePlanningPayload struct {
-	Memo string `json:"memo"`
+	Memo     string               `json:"memo"`
+	Context  string               `json:"context,omitempty"`
+	Composed *agent.ComposeOutput `json:"composed,omitempty"`
+	Meta     stageRunMeta         `json:"meta,omitempty"`
 }
 
 type stageWritingPayload struct {
@@ -56,23 +77,29 @@ type stageWritingPayload struct {
 	Sections map[string]string `json:"sections"`
 	Raw      string            `json:"raw"`
 	Source   string            `json:"source"`
+	Meta     stageRunMeta      `json:"meta,omitempty"`
 }
 
 type stageAuditingPayload struct {
-	Raw    string      `json:"raw"`
-	Result auditResult `json:"result"`
+	Raw    string       `json:"raw"`
+	Result auditResult  `json:"result"`
+	Meta   stageRunMeta `json:"meta,omitempty"`
 }
 
 type stageRevisingPayload struct {
-	Applied  bool              `json:"applied"`
-	Content  string            `json:"content"`
-	Sections map[string]string `json:"sections"`
-	Raw      string            `json:"raw"`
-	Reason   string            `json:"reason,omitempty"`
+	Applied           bool                 `json:"applied"`
+	Content           string               `json:"content"`
+	Sections          map[string]string    `json:"sections"`
+	Raw               string               `json:"raw"`
+	Reason            string               `json:"reason,omitempty"`
+	Evaluation        *agent.ScoreDecision `json:"evaluation,omitempty"`
+	CandidateAuditRaw string               `json:"candidate_audit_raw,omitempty"`
+	Meta              stageRunMeta         `json:"meta,omitempty"`
 }
 
 type stagePolishingPayload struct {
-	Content string `json:"content"`
+	Content string       `json:"content"`
+	Meta    stageRunMeta `json:"meta,omitempty"`
 }
 
 type stageExtractingPayload struct {
@@ -80,12 +107,14 @@ type stageExtractingPayload struct {
 	SettlerDelta    settlerDelta         `json:"settler_delta"`
 	SettlerRaw      string               `json:"settler_raw"`
 	ExtractedTruth  *extractedTruthFiles `json:"extracted_truth"`
+	Meta            stageRunMeta         `json:"meta,omitempty"`
 }
 
 type stageSnapshotPayload struct {
-	ChapterNumber uint   `json:"chapter_number"`
-	Title         string `json:"title"`
-	Content       string `json:"content"`
+	ChapterNumber uint         `json:"chapter_number"`
+	Title         string       `json:"title"`
+	Content       string       `json:"content"`
+	Meta          stageRunMeta `json:"meta,omitempty"`
 }
 
 func (p *Pipeline) StartWriteRun(ctx context.Context, in StartWriteRunInput) (*model.ChapterWriteRun, error) {
@@ -284,7 +313,7 @@ func (p *Pipeline) executeWriteRun(runID uint) {
 			_ = p.finishWriteRun(run, baseline, model.WriteRunCancelled, stage, "写作已取消")
 			return
 		}
-		if err := p.executeStage(ctx, run, state, stage); err != nil {
+		if err := p.executeStageWithRetries(ctx, run, state, stage); err != nil {
 			if errors.Is(err, errWriteRunCancelled) || errors.Is(err, context.Canceled) {
 				_ = p.finishWriteRun(run, baseline, model.WriteRunCancelled, stage, "写作已取消")
 				return
@@ -395,31 +424,64 @@ func (p *Pipeline) assertRunNotCancelled(ctx context.Context, runID uint) error 
 	return nil
 }
 
-func (p *Pipeline) executeStage(ctx context.Context, run *model.ChapterWriteRun, state *writeRunState, stage model.ChapterWriteStage) error {
+func (p *Pipeline) executeStageWithRetries(ctx context.Context, run *model.ChapterWriteRun, state *writeRunState, stage model.ChapterWriteStage) error {
+	var lastErr error
+	for attempt := uint(1); attempt <= maxWriteStageAttempts; attempt++ {
+		if err := p.assertRunNotCancelled(ctx, run.ID); err != nil {
+			return err
+		}
+		tokenCursor, trackTokens := p.tokenUsageCursor()
+		err := p.executeStage(ctx, run, state, stage, attempt)
+		stageRun, _ := p.truth.GetChapterWriteStage(run.ID, stage)
+		if stageRun != nil && stageRun.Attempt == attempt {
+			_ = p.attachStageMeta(stageRun, stageRunMeta{
+				Attempt:      attempt,
+				MaxAttempts:  maxWriteStageAttempts,
+				TokenSummary: p.tokenSummaryAfter(tokenCursor, trackTokens),
+			})
+		}
+		if err == nil {
+			return nil
+		}
+		if errors.Is(err, errWriteRunCancelled) || errors.Is(err, context.Canceled) {
+			return err
+		}
+		lastErr = err
+		if attempt < maxWriteStageAttempts {
+			continue
+		}
+	}
+	return lastErr
+}
+
+func (p *Pipeline) executeStage(ctx context.Context, run *model.ChapterWriteRun, state *writeRunState, stage model.ChapterWriteStage, attempt uint) error {
 	switch stage {
 	case model.WriteStageContext:
-		return p.executeContextStage(ctx, run, state)
+		return p.executeContextStage(ctx, run, state, attempt)
 	case model.WriteStagePlanning:
-		return p.executePlanningStage(ctx, run, state)
+		return p.executePlanningStage(ctx, run, state, attempt)
 	case model.WriteStageWriting:
-		return p.executeWritingStage(ctx, run, state)
+		return p.executeWritingStage(ctx, run, state, attempt)
 	case model.WriteStageAuditing:
-		return p.executeAuditingStage(ctx, run, state)
+		return p.executeAuditingStage(ctx, run, state, attempt)
 	case model.WriteStageRevising:
-		return p.executeRevisingStage(ctx, run, state)
+		return p.executeRevisingStage(ctx, run, state, attempt)
 	case model.WriteStagePolishing:
-		return p.executePolishingStage(ctx, run, state)
+		return p.executePolishingStage(ctx, run, state, attempt)
 	case model.WriteStageExtracting:
-		return p.executeExtractingStage(ctx, run, state)
+		return p.executeExtractingStage(ctx, run, state, attempt)
 	case model.WriteStageSnapshot:
-		return p.executeSnapshotStage(ctx, run, state)
+		return p.executeSnapshotStage(ctx, run, state, attempt)
 	default:
 		return fmt.Errorf("unsupported stage: %s", stage)
 	}
 }
 
-func (p *Pipeline) startStage(run *model.ChapterWriteRun, stage model.ChapterWriteStage, inputPayload any, inputSummary string) (*model.ChapterWriteStageRun, error) {
+func (p *Pipeline) startStage(run *model.ChapterWriteRun, stage model.ChapterWriteStage, attempt uint, inputPayload any, inputSummary string) (*model.ChapterWriteStageRun, error) {
 	now := time.Now()
+	if attempt == 0 {
+		attempt = 1
+	}
 	run.CurrentStage = stage
 	if err := p.truth.SaveChapterWriteRun(run); err != nil {
 		return nil, err
@@ -428,7 +490,7 @@ func (p *Pipeline) startStage(run *model.ChapterWriteRun, stage model.ChapterWri
 	stageRun := &model.ChapterWriteStageRun{
 		RunID:        run.ID,
 		Stage:        stage,
-		Attempt:      1,
+		Attempt:      attempt,
 		Status:       model.WriteStageRunning,
 		InputSummary: clipText(inputSummary, 400),
 		InputPayload: payload,
@@ -450,8 +512,67 @@ func (p *Pipeline) finishStage(stageRun *model.ChapterWriteStageRun, status mode
 	return p.truth.SaveChapterWriteStageRun(stageRun)
 }
 
-func (p *Pipeline) executeContextStage(ctx context.Context, run *model.ChapterWriteRun, state *writeRunState) error {
-	stageRun, err := p.startStage(run, model.WriteStageContext, map[string]any{
+func (p *Pipeline) tokenUsageCursor() (uint, bool) {
+	if p.tokenUsage == nil {
+		return 0, false
+	}
+	id, err := p.tokenUsage.LatestID()
+	if err != nil {
+		return 0, false
+	}
+	return id, true
+}
+
+func (p *Pipeline) tokenSummaryAfter(cursor uint, ok bool) []stageTokenSummary {
+	if !ok || p.tokenUsage == nil {
+		return nil
+	}
+	rows, err := p.tokenUsage.SummaryAfterID(cursor)
+	if err != nil {
+		return nil
+	}
+	result := make([]stageTokenSummary, 0, len(rows))
+	for _, row := range rows {
+		if row.TotalTokens <= 0 && row.PromptTokens <= 0 && row.CompletionTokens <= 0 && row.CachedTokens <= 0 {
+			continue
+		}
+		result = append(result, stageTokenSummary{
+			AgentName:        row.AgentName,
+			PromptTokens:     row.PromptTokens,
+			CompletionTokens: row.CompletionTokens,
+			CachedTokens:     row.CachedTokens,
+			TotalTokens:      row.TotalTokens,
+		})
+	}
+	return result
+}
+
+func (p *Pipeline) attachStageMeta(stageRun *model.ChapterWriteStageRun, meta stageRunMeta) error {
+	if stageRun == nil {
+		return nil
+	}
+	stageRun.OutputPayload = attachStageMetaToPayload(stageRun.OutputPayload, meta)
+	return p.truth.SaveChapterWriteStageRun(stageRun)
+}
+
+func attachStageMetaToPayload(payload string, meta stageRunMeta) string {
+	raw := map[string]any{}
+	if strings.TrimSpace(payload) != "" {
+		var parsed map[string]any
+		if err := json.Unmarshal([]byte(payload), &parsed); err == nil && parsed != nil {
+			raw = parsed
+		}
+	}
+	raw["meta"] = meta
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return payload
+	}
+	return string(b)
+}
+
+func (p *Pipeline) executeContextStage(ctx context.Context, run *model.ChapterWriteRun, state *writeRunState, attempt uint) error {
+	stageRun, err := p.startStage(run, model.WriteStageContext, attempt, map[string]any{
 		"chapter_number": state.ChapterNumber,
 		"run_type":       normalizeWriteRunType(run.RunType),
 	}, fmt.Sprintf("构建第 %d 章上下文", state.ChapterNumber))
@@ -470,7 +591,7 @@ func (p *Pipeline) executeContextStage(ctx context.Context, run *model.ChapterWr
 	return p.finishStage(stageRun, model.WriteStageSucceeded, stageContextPayload{Context: contextPkg}, contextPkg, "")
 }
 
-func (p *Pipeline) executePlanningStage(ctx context.Context, run *model.ChapterWriteRun, state *writeRunState) error {
+func (p *Pipeline) executePlanningStage(ctx context.Context, run *model.ChapterWriteRun, state *writeRunState, attempt uint) error {
 	plannerModelID := p.resolveModelID(run.BookID, "planner", run.RequestedModelID)
 	plannerAny, ok := p.registry.Get("planner")
 	if !ok {
@@ -485,7 +606,7 @@ func (p *Pipeline) executePlanningStage(ctx context.Context, run *model.ChapterW
 		state.ContextPkg,
 		run.UserInput,
 	)
-	stageRun, err := p.startStage(run, model.WriteStagePlanning, map[string]any{
+	stageRun, err := p.startStage(run, model.WriteStagePlanning, attempt, map[string]any{
 		"model_id": plannerModelID,
 		"prompt":   plannerInput,
 	}, plannerInput)
@@ -500,10 +621,21 @@ func (p *Pipeline) executePlanningStage(ctx context.Context, run *model.ChapterW
 		return err
 	}
 	state.Memo = memo
-	return p.finishStage(stageRun, model.WriteStageSucceeded, stagePlanningPayload{Memo: memo}, memo, "")
+	composed, err := p.composeChapterContext(state.Book, state.ChapterNumber, memo, run.UserInput, normalizeWriteRunType(run.RunType), state.OriginalChapter)
+	if err != nil {
+		_ = p.finishStage(stageRun, model.WriteStageFailed, stagePlanningPayload{Memo: memo}, memo, err.Error())
+		return err
+	}
+	state.Composed = composed
+	state.ContextPkg = composed.ContextText
+	return p.finishStage(stageRun, model.WriteStageSucceeded, stagePlanningPayload{
+		Memo:     memo,
+		Context:  composed.ContextText,
+		Composed: composed,
+	}, memo, "")
 }
 
-func (p *Pipeline) executeWritingStage(ctx context.Context, run *model.ChapterWriteRun, state *writeRunState) error {
+func (p *Pipeline) executeWritingStage(ctx context.Context, run *model.ChapterWriteRun, state *writeRunState, attempt uint) error {
 	writerModelID := p.resolveModelID(run.BookID, "writer", run.RequestedModelID)
 	writerAny, ok := p.registry.Get("writer")
 	if !ok {
@@ -521,7 +653,7 @@ func (p *Pipeline) executeWritingStage(ctx context.Context, run *model.ChapterWr
 		IsGoverned:       true,
 	})
 	writerInput := fmt.Sprintf(writerBuildInput, state.Book.Title, state.ChapterNumber, state.Memo, state.ContextPkg)
-	stageRun, err := p.startStage(run, model.WriteStageWriting, map[string]any{
+	stageRun, err := p.startStage(run, model.WriteStageWriting, attempt, map[string]any{
 		"model_id":      writerModelID,
 		"system_prompt": systemPrompt,
 		"prompt":        writerInput,
@@ -570,8 +702,8 @@ func (p *Pipeline) executeWritingStage(ctx context.Context, run *model.ChapterWr
 	}, firstNonEmpty(title, state.Content), "")
 }
 
-func (p *Pipeline) executeAuditingStage(ctx context.Context, run *model.ChapterWriteRun, state *writeRunState) error {
-	stageRun, err := p.startStage(run, model.WriteStageAuditing, map[string]any{
+func (p *Pipeline) executeAuditingStage(ctx context.Context, run *model.ChapterWriteRun, state *writeRunState, attempt uint) error {
+	stageRun, err := p.startStage(run, model.WriteStageAuditing, attempt, map[string]any{
 		"memo":    state.Memo,
 		"context": state.ContextPkg,
 		"content": state.Content,
@@ -589,8 +721,8 @@ func (p *Pipeline) executeAuditingStage(ctx context.Context, run *model.ChapterW
 	return p.finishStage(stageRun, model.WriteStageSucceeded, stageAuditingPayload{Raw: raw, Result: result}, raw, "")
 }
 
-func (p *Pipeline) executeRevisingStage(ctx context.Context, run *model.ChapterWriteRun, state *writeRunState) error {
-	stageRun, err := p.startStage(run, model.WriteStageRevising, map[string]any{
+func (p *Pipeline) executeRevisingStage(ctx context.Context, run *model.ChapterWriteRun, state *writeRunState, attempt uint) error {
+	stageRun, err := p.startStage(run, model.WriteStageRevising, attempt, map[string]any{
 		"audit_result": state.AuditResult,
 		"audit_raw":    state.AuditRaw,
 		"content":      state.Content,
@@ -610,7 +742,37 @@ func (p *Pipeline) executeRevisingStage(ctx context.Context, run *model.ChapterW
 		_ = p.finishStage(stageRun, cancelledStageStatus(err), nil, "", err.Error())
 		return err
 	}
-	state.Content = strings.TrimSpace(revisedContent)
+	revisedContent = strings.TrimSpace(revisedContent)
+	revisedAudit, revisedAuditRaw, auditErr := p.runAuditor(ctx, state.Book, state.ChapterNumber, state.Memo, state.ContextPkg, revisedContent, run.RequestedModelID)
+	if auditErr != nil {
+		decision := p.failedRevisionGateDecision(state.AuditResult, "修订稿候选审计失败，保留原稿："+auditErr.Error())
+		return p.finishStage(stageRun, model.WriteStageSkipped, stageRevisingPayload{
+			Applied:    false,
+			Content:    state.Content,
+			Sections:   revisedSections,
+			Raw:        reviserRaw,
+			Reason:     decision.Reason,
+			Evaluation: &decision,
+		}, decision.Reason, "")
+	}
+	decision, scoreErr := p.decideRevisionGate(state.AuditResult, revisedAudit)
+	if scoreErr != nil {
+		_ = p.finishStage(stageRun, model.WriteStageFailed, nil, "", scoreErr.Error())
+		return scoreErr
+	}
+	if !decision.Applied {
+		return p.finishStage(stageRun, model.WriteStageSkipped, stageRevisingPayload{
+			Applied:           false,
+			Content:           state.Content,
+			Sections:          revisedSections,
+			Raw:               reviserRaw,
+			Reason:            decision.Reason,
+			Evaluation:        &decision,
+			CandidateAuditRaw: revisedAuditRaw,
+		}, decision.Reason, "")
+	}
+
+	state.Content = revisedContent
 	if strings.TrimSpace(revisedSections["UPDATED_STATE"]) != "" {
 		state.Sections["UPDATED_STATE"] = revisedSections["UPDATED_STATE"]
 	}
@@ -620,17 +782,21 @@ func (p *Pipeline) executeRevisingStage(ctx context.Context, run *model.ChapterW
 	if strings.TrimSpace(revisedSections["POST_SETTLEMENT"]) != "" {
 		state.Sections["POST_SETTLEMENT"] = revisedSections["POST_SETTLEMENT"]
 	}
+	state.AuditResult = revisedAudit
+	state.AuditRaw = revisedAuditRaw
 	state.FinalizedSource = "reviser"
 	return p.finishStage(stageRun, model.WriteStageSucceeded, stageRevisingPayload{
-		Applied:  true,
-		Content:  state.Content,
-		Sections: revisedSections,
-		Raw:      reviserRaw,
+		Applied:           true,
+		Content:           state.Content,
+		Sections:          revisedSections,
+		Raw:               reviserRaw,
+		Evaluation:        &decision,
+		CandidateAuditRaw: revisedAuditRaw,
 	}, state.Content, "")
 }
 
-func (p *Pipeline) executePolishingStage(ctx context.Context, run *model.ChapterWriteRun, state *writeRunState) error {
-	stageRun, err := p.startStage(run, model.WriteStagePolishing, map[string]any{
+func (p *Pipeline) executePolishingStage(ctx context.Context, run *model.ChapterWriteRun, state *writeRunState, attempt uint) error {
+	stageRun, err := p.startStage(run, model.WriteStagePolishing, attempt, map[string]any{
 		"content": state.Content,
 	}, state.Content)
 	if err != nil {
@@ -650,8 +816,8 @@ func (p *Pipeline) executePolishingStage(ctx context.Context, run *model.Chapter
 	return p.finishStage(stageRun, model.WriteStageSucceeded, stagePolishingPayload{Content: state.Content}, state.Content, "")
 }
 
-func (p *Pipeline) executeExtractingStage(ctx context.Context, run *model.ChapterWriteRun, state *writeRunState) error {
-	stageRun, err := p.startStage(run, model.WriteStageExtracting, map[string]any{
+func (p *Pipeline) executeExtractingStage(ctx context.Context, run *model.ChapterWriteRun, state *writeRunState, attempt uint) error {
+	stageRun, err := p.startStage(run, model.WriteStageExtracting, attempt, map[string]any{
 		"title":   state.Title,
 		"content": state.Content,
 	}, state.Content)
@@ -697,8 +863,8 @@ func (p *Pipeline) executeExtractingStage(ctx context.Context, run *model.Chapte
 	}, firstNonEmpty(state.Title, state.Content), "")
 }
 
-func (p *Pipeline) executeSnapshotStage(ctx context.Context, run *model.ChapterWriteRun, state *writeRunState) error {
-	stageRun, err := p.startStage(run, model.WriteStageSnapshot, map[string]any{
+func (p *Pipeline) executeSnapshotStage(ctx context.Context, run *model.ChapterWriteRun, state *writeRunState, attempt uint) error {
+	stageRun, err := p.startStage(run, model.WriteStageSnapshot, attempt, map[string]any{
 		"title":   state.Title,
 		"content": state.Content,
 	}, "提交章节与真相状态")
@@ -719,6 +885,13 @@ func (p *Pipeline) executeSnapshotStage(ctx context.Context, run *model.ChapterW
 			"evidence":   len(state.ExtractedTruth.EvidenceNotes),
 		},
 	}
+	if state.Composed != nil {
+		tracePayload["composer"] = map[string]any{
+			"context_package": state.Composed.ContextPackage,
+			"rule_stack":      state.Composed.RuleStack,
+			"trace":           state.Composed.Trace,
+		}
+	}
 
 	err = p.truth.WithinTx(func(txTruth repository.TruthFileRepository) error {
 		txPipeline := p.withTruthRepo(txTruth)
@@ -735,11 +908,19 @@ func (p *Pipeline) executeSnapshotStage(ctx context.Context, run *model.ChapterW
 			WordCount:     uint(len([]rune(state.Content))),
 			Status:        model.ChapterDraft,
 		}
+		ruleStackContent := ""
+		if state.Composed != nil {
+			ruleStackContent = marshalArtifactPayload(state.Composed.RuleStack)
+		}
 		for _, artifact := range []*model.RuntimeArtifact{
 			{BookID: run.BookID, ChapterNumber: state.ChapterNumber, ArtifactType: model.ArtifactContext, Content: state.ContextPkg},
 			{BookID: run.BookID, ChapterNumber: state.ChapterNumber, ArtifactType: model.ArtifactIntent, Content: state.Memo},
 			{BookID: run.BookID, ChapterNumber: state.ChapterNumber, ArtifactType: model.ArtifactPlan, Content: state.Sections["PRE_WRITE_CHECK"]},
+			{BookID: run.BookID, ChapterNumber: state.ChapterNumber, ArtifactType: model.ArtifactRuleStack, Content: ruleStackContent},
 		} {
+			if artifact.ArtifactType == model.ArtifactRuleStack && ruleStackContent == "" {
+				continue
+			}
 			if err := txTruth.SaveRuntimeArtifact(artifact); err != nil {
 				return err
 			}
@@ -752,7 +933,7 @@ func (p *Pipeline) executeSnapshotStage(ctx context.Context, run *model.ChapterW
 		}
 		if err := txPipeline.persistExtractedTruthFiles(run.BookID, state.ChapterNumber, state.ExtractedTruth, extractionOptions{
 			SaveHooks:   false,
-			SaveSummary: false,
+			SaveSummary: true,
 		}); err != nil {
 			return err
 		}
@@ -853,21 +1034,42 @@ func (p *Pipeline) loadResumeState(parentRunID, newRunID uint, resumeStage model
 	if err != nil {
 		return err
 	}
-	for _, stage := range stages {
-		if stage.Stage == resumeStage {
+	latestBeforeResume := map[model.ChapterWriteStage]model.ChapterWriteStageRun{}
+	for _, stageRun := range stages {
+		if stageRun.Stage == resumeStage {
 			break
 		}
-		if stage.Status != model.WriteStageSucceeded && stage.Status != model.WriteStageSkipped {
-			return fmt.Errorf("stage %s is not reusable", stage.Stage)
+		latestBeforeResume[stageRun.Stage] = stageRun
+	}
+	stageOrder := []model.ChapterWriteStage{
+		model.WriteStageContext,
+		model.WriteStagePlanning,
+		model.WriteStageWriting,
+		model.WriteStageAuditing,
+		model.WriteStageRevising,
+		model.WriteStagePolishing,
+		model.WriteStageExtracting,
+		model.WriteStageSnapshot,
+	}
+	for _, stage := range stageOrder {
+		if stage == resumeStage {
+			break
 		}
-		cloned := stage
+		stageRun, ok := latestBeforeResume[stage]
+		if !ok {
+			continue
+		}
+		if stageRun.Status != model.WriteStageSucceeded && stageRun.Status != model.WriteStageSkipped {
+			return fmt.Errorf("stage %s is not reusable", stageRun.Stage)
+		}
+		cloned := stageRun
 		cloned.ID = 0
 		cloned.RunID = newRunID
 		cloned.Attempt = 1
 		if err := p.truth.CreateChapterWriteStageRun(&cloned); err != nil {
 			return err
 		}
-		if err := hydrateRunState(stage.Stage, stage.OutputPayload, state); err != nil {
+		if err := hydrateRunState(stageRun.Stage, stageRun.OutputPayload, state); err != nil {
 			return err
 		}
 	}
@@ -891,6 +1093,13 @@ func hydrateRunState(stage model.ChapterWriteStage, payload string, state *write
 			return err
 		}
 		state.Memo = out.Memo
+		if out.Composed != nil {
+			state.Composed = out.Composed
+			state.ContextPkg = out.Composed.ContextText
+		}
+		if strings.TrimSpace(out.Context) != "" {
+			state.ContextPkg = out.Context
+		}
 	case model.WriteStageWriting:
 		var out stageWritingPayload
 		if err := json.Unmarshal([]byte(payload), &out); err != nil {

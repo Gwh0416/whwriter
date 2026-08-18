@@ -48,7 +48,7 @@ type AgentMessage struct {
 }
 
 func (c *Client) Chat(ctx context.Context, modelID uint, systemPrompt string, messages []AgentMessage, temperature float64) (string, error) {
-	return c.chatWithTimeout(ctx, "", modelID, systemPrompt, messages, temperature)
+	return c.chatWithTimeout(ctx, "chat", modelID, systemPrompt, messages, temperature)
 }
 
 func (c *Client) ChatForAgent(ctx context.Context, agentName string, modelID uint, systemPrompt string, messages []AgentMessage, temperature float64) (string, error) {
@@ -109,7 +109,7 @@ func (c *Client) chatWithTimeout(ctx context.Context, agentName string, modelID 
 		cancel()
 
 		if err == nil {
-			c.recordUsage(llmModel.ID, resp)
+			c.recordUsage(llmModel.ID, agentName, resp)
 			return resp.Content, nil
 		}
 		lastErr = err
@@ -138,21 +138,28 @@ func (c *Client) chatWithTimeout(ctx context.Context, agentName string, modelID 
 	return "", fmt.Errorf("generate: %w", lastErr)
 }
 
-func (c *Client) recordUsage(modelID uint, resp *schema.Message) {
+func (c *Client) recordUsage(modelID uint, agentName string, resp *schema.Message) {
 	if c.tokenUsageRepo == nil || resp == nil || resp.ResponseMeta == nil || resp.ResponseMeta.Usage == nil {
 		return
 	}
 
 	usage := resp.ResponseMeta.Usage
-	if usage.TotalTokens <= 0 && usage.PromptTokens <= 0 && usage.CompletionTokens <= 0 {
+	cachedTokens := usage.PromptTokenDetails.CachedTokens
+	totalTokens := usage.TotalTokens
+	if totalTokens <= 0 {
+		totalTokens = usage.PromptTokens + usage.CompletionTokens
+	}
+	if totalTokens <= 0 && usage.PromptTokens <= 0 && usage.CompletionTokens <= 0 && cachedTokens <= 0 {
 		return
 	}
 
 	_ = c.tokenUsageRepo.Record(&model.TokenUsage{
 		LLMModelID:       modelID,
+		AgentName:        agentName,
 		PromptTokens:     int64(usage.PromptTokens),
 		CompletionTokens: int64(usage.CompletionTokens),
-		TotalTokens:      int64(usage.TotalTokens),
+		CachedTokens:     int64(cachedTokens),
+		TotalTokens:      int64(totalTokens),
 	})
 }
 

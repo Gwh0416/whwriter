@@ -1,4 +1,4 @@
-package mysql
+package sqlite
 
 import (
 	"whwriter/backend/internal/model"

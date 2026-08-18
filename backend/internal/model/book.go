@@ -23,7 +23,6 @@ const (
 
 type Book struct {
 	ID               uint           `json:"id" gorm:"primaryKey"`
-	UserID           uint           `json:"user_id" gorm:"index;not null"`
 	GenreID          uint           `json:"genre_id" gorm:"not null"`
 	PlatformID       uint           `json:"platform_id" gorm:"not null"`
 	LLMModelID       uint           `json:"llm_model_id" gorm:"default:0"`
