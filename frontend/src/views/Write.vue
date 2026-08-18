@@ -117,7 +117,7 @@
 
           <div class="book-tabs">
             <button class="book-tab" :class="{ active: bookTab === 'write' }" @click="bookTab = 'write'">写作</button>
-            <button class="book-tab" :class="{ active: bookTab === 'truth' }" @click="bookTab = 'truth'; loadTruthFiles()">真相文件</button>
+            <button class="book-tab" :class="{ active: bookTab === 'truth' }" @click="bookTab = 'truth'; loadTruthFiles()">记忆文件</button>
           </div>
 
           <div v-if="bookTab === 'write'">
@@ -823,8 +823,8 @@ const progressSteps = reactive([
   { key: 'auditing', label: 'Auditor 审查结构', desc: '检查章节结构、推进节奏和状态一致性是否合理。', status: 'pending', msg: '' },
   { key: 'revising', label: 'Reviser 修订正文', desc: '当审查不过时，按问题清单修订正文和状态片段。', status: 'pending', msg: '' },
   { key: 'polishing', label: 'Polisher 润色文稿', desc: '在不改变既有设定的前提下优化表达、节奏和可读性。', status: 'pending', msg: '' },
-  { key: 'extracting', label: '提取真相文件', desc: '结算本章带来的状态变化，并抽取人物、设定、伏笔等真相数据。', status: 'pending', msg: '' },
-  { key: 'snapshot', label: '保存章节快照', desc: '统一提交章节和真相状态，并生成用于回滚的快照。', status: 'pending', msg: '' },
+  { key: 'extracting', label: '提取记忆文件', desc: '结算本章带来的状态变化，并抽取人物、设定、伏笔等记忆数据。', status: 'pending', msg: '' },
+  { key: 'snapshot', label: '保存章节快照', desc: '统一提交章节和记忆状态，并生成用于回滚的快照。', status: 'pending', msg: '' },
 ])
 const writeRunStageTokenRows = computed(() => {
   const byStage = new Map()
@@ -1203,7 +1203,7 @@ async function restoreStoredWriteRun() {
 async function deleteBook(book, evt = null) {
   evt?.stopPropagation?.()
   if (!book?.id) return
-  if (!confirm(`确定删除书籍《${book.title}》吗？这会删除该书的章节、真相文件和运行产物，且不可恢复。`)) return
+  if (!confirm(`确定删除书籍《${book.title}》吗？这会删除该书的章节、记忆文件和运行产物，且不可恢复。`)) return
 
   deletingBookID.value = book.id
   try {
@@ -1765,7 +1765,7 @@ function agentNameLabel(name) {
     polisher: 'Polisher',
     settler: 'Settler',
     architect: 'Architect',
-    truth_extractor: '真相提取',
+    truth_extractor: '记忆提取',
     role_namer: '角色命名',
     radar_classifier: '雷达分类',
     radar_analyzer: '雷达画像',
