@@ -271,6 +271,9 @@ func (r *truthFileRepo) SaveAgentModelRoute(route *model.AgentModelRoute) error 
 
 func (r *truthFileRepo) DeleteBookCascade(bookID uint) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := deleteBookKnowledgeIndex(tx, bookID); err != nil {
+			return err
+		}
 		deleteOps := []struct {
 			query string
 			value interface{}
@@ -362,6 +365,13 @@ func (r *truthFileRepo) DeleteLatestChapterCascade(bookID uint, chapterNumber ui
 		}
 
 		if err := restoreTruthStateFromSnapshot(tx, bookID, chapterNumber, prevSnapshot); err != nil {
+			return err
+		}
+		specs, err := collectKnowledgeDocumentSpecs(tx, bookID)
+		if err != nil {
+			return err
+		}
+		if err := syncKnowledgeDocumentSpecs(tx, bookID, specs); err != nil {
 			return err
 		}
 

@@ -65,6 +65,8 @@ func NewDB(path string) (*gorm.DB, error) {
 		&model.ChapterSummary{},
 		&model.BookFoundation{},
 		&model.ChapterSnapshot{},
+		&model.KnowledgeDocument{},
+		&model.KnowledgeChunk{},
 		&model.RuntimeArtifact{},
 		&model.LLMConfig{},
 		&model.LLMModel{},
@@ -85,6 +87,12 @@ func NewDB(path string) (*gorm.DB, error) {
 		&model.RadarRule{},
 	); err != nil {
 		return nil, fmt.Errorf("auto migrate: %w", err)
+	}
+	if err := migrateKnowledgeSearchSchema(db); err != nil {
+		return nil, fmt.Errorf("migrate knowledge search schema: %w", err)
+	}
+	if err := rebuildKnowledgeSearchIndex(db); err != nil {
+		return nil, fmt.Errorf("rebuild knowledge search index: %w", err)
 	}
 
 	log.Printf("sqlite connected and migrated: %s", path)

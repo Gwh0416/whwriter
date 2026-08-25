@@ -65,21 +65,22 @@ type ChapterTrace struct {
 }
 
 type ComposeInput struct {
-	Book            *model.Book
-	ChapterNumber   uint
-	Memo            string
-	UserInput       string
-	Foundations     []model.BookFoundation
-	BookState       *model.BookState
-	Characters      []model.Character
-	Facts           []model.Fact
-	Hooks           []model.Hook
-	Summaries       []model.ChapterSummary
-	RadarProfiles   []model.RadarTaxonomyProfile
-	RadarRules      []model.RadarRule
-	PreviousChapter *model.Chapter
-	OriginalChapter *model.Chapter
-	RunType         string
+	Book               *model.Book
+	ChapterNumber      uint
+	Memo               string
+	UserInput          string
+	Foundations        []model.BookFoundation
+	BookState          *model.BookState
+	Characters         []model.Character
+	Facts              []model.Fact
+	Hooks              []model.Hook
+	Summaries          []model.ChapterSummary
+	RetrievedKnowledge []model.KnowledgeSearchResult
+	RadarProfiles      []model.RadarTaxonomyProfile
+	RadarRules         []model.RadarRule
+	PreviousChapter    *model.Chapter
+	OriginalChapter    *model.Chapter
+	RunType            string
 }
 
 type ComposeOutput struct {
@@ -111,6 +112,9 @@ func (a *ComposerAgent) Compose(in ComposeInput) ComposeOutput {
 	add("runtime/user_input", "用户输入的本章局部提示，用于在既有剧情约束内调整下一章推进。", in.UserInput, true, 1800)
 
 	for _, foundation := range orderedFoundations(in.Foundations) {
+		if !isAlwaysIncludedFoundation(foundation.FileType) {
+			continue
+		}
 		reason := foundationReason(foundation.FileType)
 		add("foundation/"+string(foundation.FileType), reason, foundation.Content, isProtectedFoundation(foundation.FileType), 2400)
 	}
@@ -132,7 +136,11 @@ func (a *ComposerAgent) Compose(in ComposeInput) ComposeOutput {
 	}
 
 	if len(in.Summaries) > 0 {
-		add("truth/recent_summaries", "最近章节摘要，用于保持承接和避免标题/节奏重复。", renderRecentSummaries(in.Summaries, 5), false, 2600)
+		add("truth/recent_summaries", "最近章节摘要，用于保持承接和避免标题/节奏重复。", renderRecentSummaries(in.Summaries, 3), false, 1800)
+	}
+
+	if len(in.RetrievedKnowledge) > 0 {
+		appendRetrievedKnowledge(&selected, in.RetrievedKnowledge)
 	}
 
 	if len(in.RadarProfiles) > 0 {
@@ -313,6 +321,57 @@ func isProtectedFoundation(fileType model.FoundationFileType) bool {
 	}
 }
 
+func isAlwaysIncludedFoundation(fileType model.FoundationFileType) bool {
+	switch fileType {
+	case model.FoundationBookRules,
+		model.FoundationAuthorIntent,
+		model.FoundationCurrentFocus,
+		model.FoundationAuditDrift:
+		return true
+	default:
+		return false
+	}
+}
+
+func appendRetrievedKnowledge(selected *[]ContextSource, results []model.KnowledgeSearchResult) {
+	const budget = 3200
+	remaining := budget
+	seen := make(map[string]struct{}, len(results))
+
+	for _, result := range results {
+		if remaining <= 0 {
+			return
+		}
+		key := fmt.Sprintf("%s/%s/%d", result.SourceType, result.SourceID, result.ChunkIndex)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+
+		limit := 600
+		switch result.SourceType {
+		case model.KnowledgeSourceFoundation:
+			limit = 800
+		case model.KnowledgeSourceCharacter:
+			limit = 680
+		}
+		if limit > remaining {
+			limit = remaining
+		}
+		excerpt := clipComposerText(result.Content, limit)
+		if strings.TrimSpace(excerpt) == "" {
+			continue
+		}
+		*selected = append(*selected, ContextSource{
+			Source:    fmt.Sprintf("retrieval/%s/%s#%d", result.SourceType, result.SourceID, result.ChunkIndex),
+			Reason:    fmt.Sprintf("BM25 检索命中：%s。", strings.TrimSpace(result.Title)),
+			Excerpt:   excerpt,
+			Protected: false,
+		})
+		remaining -= len([]rune(excerpt))
+	}
+}
+
 func renderBookState(state *model.BookState) string {
 	lines := []string{
 		fmt.Sprintf("- current_chapter: %d", state.CurrentChapter),
@@ -337,13 +396,18 @@ func renderCharacters(characters []model.Character, memo string) string {
 		return out[i].LastSeenChapter > out[j].LastSeenChapter
 	})
 	lines := make([]string, 0, len(out))
+	optionalCount := 0
 	for _, c := range out {
 		context := firstNonEmptyComposer(c.Profile, c.CurrentStatus, c.CoreTags, c.InnerDrive)
 		if context == "" {
 			continue
 		}
-		if len(lines) >= 10 && !strings.Contains(memo, c.Name) && c.RoleType == model.CharacterMinor {
+		required := c.RoleType == model.CharacterProtagonist || strings.Contains(memo, c.Name)
+		if !required && (c.RoleType == model.CharacterMinor || optionalCount >= 3) {
 			continue
+		}
+		if !required {
+			optionalCount++
 		}
 		lines = append(lines, fmt.Sprintf("- %s (%s, last_seen=%d): %s", c.Name, c.RoleType, c.LastSeenChapter, clipComposerText(context, 360)))
 	}
@@ -359,9 +423,14 @@ func renderFacts(facts []model.Fact, memo string) string {
 		return out[i].ValidFromChapter > out[j].ValidFromChapter
 	})
 	lines := make([]string, 0, len(out))
+	optionalCount := 0
 	for _, fact := range out {
-		if len(lines) >= 14 && !factMentionedInMemo(fact, memo) {
+		required := fact.Category == "rule" || factMentionedInMemo(fact, memo)
+		if !required && optionalCount >= 4 {
 			continue
+		}
+		if !required {
+			optionalCount++
 		}
 		lines = append(lines, fmt.Sprintf("- %s %s %s (category=%s, from=%d)", fact.Subject, fact.Predicate, fact.Object, fact.Category, fact.ValidFromChapter))
 	}
@@ -388,13 +457,17 @@ func renderHooks(hooks []model.Hook, memoHookIDs map[string]struct{}, chapterNum
 		return active[i].LastAdvancedChapter > active[j].LastAdvancedChapter
 	})
 	lines := make([]string, 0, len(active))
+	optionalCount := 0
 	for _, hook := range active {
-		if len(lines) >= 14 {
-			if _, ok := memoHookIDs[hook.HookID]; !ok {
-				continue
-			}
-		}
+		_, referenced := memoHookIDs[hook.HookID]
 		age := int(chapterNumber) - int(hook.LastAdvancedChapter)
+		required := referenced || hook.IsCritical || age >= 5
+		if !required && optionalCount >= 4 {
+			continue
+		}
+		if !required {
+			optionalCount++
+		}
 		lines = append(lines, fmt.Sprintf("- %s [%s] status=%s start=%d last=%d age=%d payoff=%s notes=%s",
 			hook.HookID, hook.Type, hook.Status, hook.StartChapter, hook.LastAdvancedChapter, age,
 			clipComposerText(hook.ExpectedPayoff, 120), clipComposerText(hook.Notes, 180)))

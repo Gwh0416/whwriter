@@ -118,6 +118,8 @@ type TruthFileRepository interface {
 	TransitionBookStatus(bookID uint, from []model.BookStatus, to model.BookStatus) (bool, error)
 	SaveChapterSnapshot(s *model.ChapterSnapshot) error
 	GetChapterSnapshots(bookID uint) ([]model.ChapterSnapshot, error)
+	RefreshKnowledgeIndex(bookID uint) error
+	SearchKnowledge(query model.KnowledgeSearchQuery) ([]model.KnowledgeSearchResult, error)
 	SaveRuntimeArtifact(a *model.RuntimeArtifact) error
 	GetRuntimeArtifacts(bookID uint, chapterNumber uint) ([]model.RuntimeArtifact, error)
 	GetAgentModelRoute(bookID uint, agentName string) (*model.AgentModelRoute, error)

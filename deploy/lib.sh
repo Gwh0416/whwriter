@@ -75,7 +75,7 @@ EOF
 
 build_backend() {
   echo "Building backend..."
-  (cd "${PROJECT_DIR}/backend" && go mod download && go build -o whwriter ./cmd/whwriter)
+  (cd "${PROJECT_DIR}/backend" && go mod download && go build -tags sqlite_fts5 -o whwriter ./cmd/whwriter)
 }
 
 build_frontend() {

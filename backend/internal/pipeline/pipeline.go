@@ -211,6 +211,9 @@ func (p *Pipeline) InitBook(ctx context.Context, in InitBookInput) error {
 	p.seedInitialCharacters(book.ID, sections["roles"], sections["book_rules"])
 	p.seedInitialHooks(book.ID, sections["pending_hooks"])
 	p.saveInitialBookState(book, sections)
+	if err := p.truth.RefreshKnowledgeIndex(book.ID); err != nil {
+		return fmt.Errorf("build knowledge index: %w", err)
+	}
 	p.saveInitialSnapshot(book, sections)
 
 	_ = p.truth.SaveRuntimeArtifact(&model.RuntimeArtifact{
@@ -256,7 +259,7 @@ func (p *Pipeline) WriteChapter(ctx context.Context, in WriteChapterInput) (*Wri
 		return nil, err
 	}
 
-	contextPkg, err := p.buildContext(ctx, in.BookID, chapterNumber)
+	contextPkg, err := p.buildContext(ctx, in.BookID, chapterNumber, in.UserInput)
 	if err != nil {
 		return nil, fmt.Errorf("build context: %w", err)
 	}
@@ -565,6 +568,9 @@ func (p *Pipeline) WriteChapter(ctx context.Context, in WriteChapterInput) (*Wri
 			SaveSummary: true,
 		}); err != nil {
 			return fmt.Errorf("persist extracted truth files: %w", err)
+		}
+		if err := txTruth.RefreshKnowledgeIndex(in.BookID); err != nil {
+			return fmt.Errorf("refresh knowledge index: %w", err)
 		}
 		txPipeline.saveDebugTrace(in.BookID, chapterNumber, "extract_done", map[string]any{
 			"characters": len(extractedTruth.Characters),
@@ -2201,25 +2207,31 @@ func countActiveHooks(hooks []model.Hook) int {
 	return count
 }
 
-func (p *Pipeline) buildContext(ctx context.Context, bookID uint, chapterNumber uint) (string, error) {
+func (p *Pipeline) buildContext(_ context.Context, bookID uint, chapterNumber uint, userInput string) (string, error) {
 	var b strings.Builder
 
-	foundations := []model.FoundationFileType{
-		model.FoundationStoryFrame,
-		model.FoundationVolumeMap,
+	book, err := p.truth.GetBook(bookID)
+	if err != nil {
+		return "", err
+	}
+	state, err := p.truth.GetBookState(bookID)
+	if err != nil {
+		return "", err
+	}
+
+	for _, fileType := range []model.FoundationFileType{
 		model.FoundationBookRules,
 		model.FoundationAuthorIntent,
-		model.FoundationStyleGuide,
 		model.FoundationCurrentFocus,
-	}
-	for _, ft := range foundations {
-		f, err := p.truth.GetFoundation(bookID, ft)
-		if err == nil && f != nil && f.Content != "" {
-			b.WriteString(fmt.Sprintf("## %s\n%s\n\n", ft, f.Content))
+		model.FoundationAuditDrift,
+	} {
+		foundation, err := p.truth.GetFoundation(bookID, fileType)
+		if err == nil && strings.TrimSpace(foundation.Content) != "" {
+			b.WriteString(fmt.Sprintf("## %s\n%s\n\n", fileType, clipText(foundation.Content, 1800)))
 		}
 	}
 
-	if state, err := p.truth.GetBookState(bookID); err == nil && state != nil {
+	if state != nil {
 		b.WriteString("## 当前状态\n")
 		if state.ProtagonistName != "" {
 			b.WriteString(fmt.Sprintf("- 主角：%s\n", state.ProtagonistName))
@@ -2248,29 +2260,12 @@ func (p *Pipeline) buildContext(ctx context.Context, bookID uint, chapterNumber 
 		b.WriteString("\n")
 	}
 
-	characters, _ := p.truth.GetCharacters(bookID)
-	if len(characters) > 0 {
-		b.WriteString("## 人物\n")
-		for _, c := range characters {
-			b.WriteString(fmt.Sprintf("- %s (%s): %s\n", c.Name, c.RoleType, buildCharacterContext(c)))
-		}
-		b.WriteString("\n")
-	}
-
-	facts, _ := p.truth.GetFacts(bookID)
-	if len(facts) > 0 {
-		b.WriteString("## 已确立事实\n")
-		for _, f := range facts {
-			b.WriteString(fmt.Sprintf("- %s %s %s (自第%d章)\n", f.Subject, f.Predicate, f.Object, f.ValidFromChapter))
-		}
-		b.WriteString("\n")
-	}
-
 	hooks, _ := p.truth.GetHooks(bookID)
 	if len(hooks) > 0 {
-		b.WriteString("## 活跃伏笔\n")
+		b.WriteString("## 必须跟踪的伏笔\n")
 		for _, h := range hooks {
-			if h.Status != model.HookResolved && h.Status != model.HookStale {
+			if h.Status != model.HookResolved && h.Status != model.HookStale &&
+				(h.IsCritical || h.Status == model.HookProgressing || h.Status == model.HookDeferred) {
 				b.WriteString(fmt.Sprintf("- %s [%s] 状态:%s 始于第%d章\n", h.HookID, h.Type, h.Status, h.StartChapter))
 			}
 		}
@@ -2281,11 +2276,37 @@ func (p *Pipeline) buildContext(ctx context.Context, bookID uint, chapterNumber 
 	if len(summaries) > 0 {
 		b.WriteString("## 最近章节摘要\n")
 		start := 0
-		if len(summaries) > 5 {
-			start = len(summaries) - 5
+		if len(summaries) > 3 {
+			start = len(summaries) - 3
 		}
 		for _, s := range summaries[start:] {
 			b.WriteString(fmt.Sprintf("- 第%d章 %s: %s\n", s.ChapterNumber, s.Title, s.KeyEvents))
+		}
+		b.WriteString("\n")
+	}
+
+	retrieved, err := p.truth.SearchKnowledge(model.KnowledgeSearchQuery{
+		BookID:        bookID,
+		Query:         buildKnowledgeRetrievalQuery(book, "", userInput, state),
+		ChapterNumber: chapterNumber,
+		Limit:         8,
+	})
+	if err != nil {
+		return "", err
+	}
+	if len(retrieved) > 0 {
+		b.WriteString("## 相关设定检索\n")
+		remaining := 2600
+		for _, result := range retrieved {
+			if remaining <= 0 {
+				break
+			}
+			content := clipText(result.Content, minInt(600, remaining))
+			if strings.TrimSpace(content) == "" {
+				continue
+			}
+			b.WriteString(fmt.Sprintf("- [来源：%s/%s] %s\n%s\n", result.SourceType, result.SourceID, result.Title, content))
+			remaining -= len([]rune(content))
 		}
 		b.WriteString("\n")
 	}
@@ -2302,6 +2323,13 @@ func (p *Pipeline) buildContext(ctx context.Context, bookID uint, chapterNumber 
 	}
 
 	return b.String(), nil
+}
+
+func minInt(left, right int) int {
+	if left < right {
+		return left
+	}
+	return right
 }
 
 type roleBlock struct {

@@ -27,6 +27,15 @@ func (p *Pipeline) composeChapterContext(book *model.Book, chapterNumber uint, m
 	if err != nil {
 		return nil, fmt.Errorf("get book state: %w", err)
 	}
+	retrievedKnowledge, err := p.truth.SearchKnowledge(model.KnowledgeSearchQuery{
+		BookID:        book.ID,
+		Query:         buildKnowledgeRetrievalQuery(book, memo, userInput, bookState),
+		ChapterNumber: chapterNumber,
+		Limit:         12,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("search knowledge: %w", err)
+	}
 	characters, err := p.truth.GetCharacters(book.ID)
 	if err != nil {
 		return nil, fmt.Errorf("get characters: %w", err)
@@ -53,23 +62,42 @@ func (p *Pipeline) composeChapterContext(book *model.Book, chapterNumber uint, m
 	}
 
 	output := composer.Compose(agent.ComposeInput{
-		Book:            book,
-		ChapterNumber:   chapterNumber,
-		Memo:            memo,
-		UserInput:       userInput,
-		Foundations:     foundations,
-		BookState:       bookState,
-		Characters:      characters,
-		Facts:           facts,
-		Hooks:           hooks,
-		Summaries:       summaries,
-		RadarProfiles:   radarProfiles,
-		RadarRules:      radarRules,
-		PreviousChapter: previous,
-		OriginalChapter: original,
-		RunType:         string(runType),
+		Book:               book,
+		ChapterNumber:      chapterNumber,
+		Memo:               memo,
+		UserInput:          userInput,
+		Foundations:        foundations,
+		BookState:          bookState,
+		Characters:         characters,
+		Facts:              facts,
+		Hooks:              hooks,
+		Summaries:          summaries,
+		RetrievedKnowledge: retrievedKnowledge,
+		RadarProfiles:      radarProfiles,
+		RadarRules:         radarRules,
+		PreviousChapter:    previous,
+		OriginalChapter:    original,
+		RunType:            string(runType),
 	})
 	return &output, nil
+}
+
+func buildKnowledgeRetrievalQuery(book *model.Book, memo, userInput string, state *model.BookState) string {
+	parts := []string{userInput, memo}
+	if book != nil {
+		parts = append(parts, book.Title, book.Description)
+	}
+	if state != nil {
+		parts = append(parts,
+			state.ProtagonistName,
+			state.SituationSummary,
+			state.CurrentLocation,
+			state.CurrentGoal,
+			state.CurrentConstraint,
+			state.CurrentConflict,
+		)
+	}
+	return strings.Join(parts, "\n")
 }
 
 func (p *Pipeline) loadRadarContext(book *model.Book) ([]model.RadarTaxonomyProfile, []model.RadarRule) {

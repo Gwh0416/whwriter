@@ -579,7 +579,7 @@ func (p *Pipeline) executeContextStage(ctx context.Context, run *model.ChapterWr
 	if err != nil {
 		return err
 	}
-	contextPkg, err := p.buildContext(ctx, run.BookID, state.ChapterNumber)
+	contextPkg, err := p.buildContext(ctx, run.BookID, state.ChapterNumber, run.UserInput)
 	if err != nil {
 		_ = p.finishStage(stageRun, model.WriteStageFailed, nil, "", err.Error())
 		return err
@@ -936,6 +936,9 @@ func (p *Pipeline) executeSnapshotStage(ctx context.Context, run *model.ChapterW
 			SaveSummary: true,
 		}); err != nil {
 			return err
+		}
+		if err := txTruth.RefreshKnowledgeIndex(run.BookID); err != nil {
+			return fmt.Errorf("refresh knowledge index: %w", err)
 		}
 		txPipeline.saveChapterSnapshot(run.BookID, state.ChapterNumber, state.Sections)
 		if payload, marshalErr := json.Marshal(tracePayload); marshalErr == nil {

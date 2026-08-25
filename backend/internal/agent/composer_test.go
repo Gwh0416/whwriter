@@ -50,6 +50,37 @@ func TestComposerComposeBuildsContextRuleStackAndTrace(t *testing.T) {
 	}
 }
 
+func TestComposerComposeAddsRetrievedKnowledgeWithoutReplacingHardContext(t *testing.T) {
+	composer := NewComposerAgent()
+
+	out := composer.Compose(ComposeInput{
+		ChapterNumber: 8,
+		Memo:          "推进 H007 的账本线索。",
+		BookState: &model.BookState{
+			ProtagonistName: "林秋",
+			CurrentGoal:     "查明账本去向",
+		},
+		RetrievedKnowledge: []model.KnowledgeSearchResult{
+			{
+				SourceType: model.KnowledgeSourceFoundation,
+				SourceID:   "story_frame",
+				Title:      "基础设定：story_frame",
+				Content:    "七号门下藏着与旧账相关的暗室。",
+			},
+		},
+	})
+
+	if !containsString(out.Trace.ProtectedSources, "truth/book_state") {
+		t.Fatalf("book state must remain protected: %#v", out.Trace.ProtectedSources)
+	}
+	if !containsString(out.Trace.SupportingSources, "retrieval/foundation/story_frame#0") {
+		t.Fatalf("retrieval source missing: %#v", out.Trace.SupportingSources)
+	}
+	if !strings.Contains(out.ContextText, "七号门下藏着与旧账相关的暗室") {
+		t.Fatalf("context should include retrieved knowledge:\n%s", out.ContextText)
+	}
+}
+
 func containsString(values []string, target string) bool {
 	for _, value := range values {
 		if value == target {
