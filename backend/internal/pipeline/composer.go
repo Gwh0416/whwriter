@@ -27,11 +27,28 @@ func (p *Pipeline) composeChapterContext(book *model.Book, chapterNumber uint, m
 	if err != nil {
 		return nil, fmt.Errorf("get book state: %w", err)
 	}
+	retrievalQuery := buildKnowledgeRetrievalQuery(book, memo, userInput, bookState)
+	wikiContext, err := p.truth.BuildWikiGraphContext(model.WikiGraphQuery{
+		BookID:        book.ID,
+		Text:          retrievalQuery,
+		ChapterNumber: chapterNumber,
+		SeedLimit:     8,
+		RelationLimit: 32,
+		EventLimit:    12,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("build wiki graph context: %w", err)
+	}
 	retrievedKnowledge, err := p.truth.SearchKnowledge(model.KnowledgeSearchQuery{
 		BookID:        book.ID,
-		Query:         buildKnowledgeRetrievalQuery(book, memo, userInput, bookState),
+		Query:         enrichRetrievalQueryWithWiki(retrievalQuery, wikiContext),
 		ChapterNumber: chapterNumber,
-		Limit:         12,
+		SourceTypes: []model.KnowledgeSourceType{
+			model.KnowledgeSourceFoundation,
+			model.KnowledgeSourceSummary,
+			model.KnowledgeSourceEvidence,
+		},
+		Limit: 12,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("search knowledge: %w", err)
@@ -72,6 +89,7 @@ func (p *Pipeline) composeChapterContext(book *model.Book, chapterNumber uint, m
 		Facts:              facts,
 		Hooks:              hooks,
 		Summaries:          summaries,
+		WikiContext:        wikiContext,
 		RetrievedKnowledge: retrievedKnowledge,
 		RadarProfiles:      radarProfiles,
 		RadarRules:         radarRules,
@@ -80,6 +98,19 @@ func (p *Pipeline) composeChapterContext(book *model.Book, chapterNumber uint, m
 		RunType:            string(runType),
 	})
 	return &output, nil
+}
+
+func enrichRetrievalQueryWithWiki(query string, graph *model.WikiGraphContext) string {
+	if graph == nil || len(graph.Entities) == 0 {
+		return query
+	}
+	var b strings.Builder
+	b.WriteString(query)
+	for _, entity := range graph.Entities {
+		b.WriteByte('\n')
+		b.WriteString(entity.CanonicalName)
+	}
+	return b.String()
 }
 
 func buildKnowledgeRetrievalQuery(book *model.Book, memo, userInput string, state *model.BookState) string {

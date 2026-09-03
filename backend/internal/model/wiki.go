@@ -143,3 +143,20 @@ type WikiEventDraft struct {
 	EvidenceStart int      `json:"evidence_start"`
 	EvidenceEnd   int      `json:"evidence_end"`
 }
+
+type WikiGraphQuery struct {
+	BookID        uint
+	Text          string
+	SeedEntityIDs []uint
+	ChapterNumber uint
+	SeedLimit     int
+	RelationLimit int
+	EventLimit    int
+}
+
+type WikiGraphContext struct {
+	Seeds     []WikiEntity       `json:"seeds"`
+	Entities  []WikiEntity       `json:"entities"`
+	Relations []WikiRelationView `json:"relations"`
+	Events    []WikiEvent        `json:"events"`
+}

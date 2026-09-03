@@ -2409,6 +2409,24 @@ func (p *Pipeline) buildContext(_ context.Context, bookID uint, chapterNumber ui
 		b.WriteString("\n")
 	}
 
+	retrievalQuery := buildKnowledgeRetrievalQuery(book, "", userInput, state)
+	wikiContext, err := p.truth.BuildWikiGraphContext(model.WikiGraphQuery{
+		BookID:        bookID,
+		Text:          retrievalQuery,
+		ChapterNumber: chapterNumber,
+		SeedLimit:     8,
+		RelationLimit: 32,
+		EventLimit:    12,
+	})
+	if err != nil {
+		return "", err
+	}
+	if wikiText := agent.RenderWikiGraphContext(wikiContext); wikiText != "" {
+		b.WriteString("## Wiki 图上下文\n")
+		b.WriteString(wikiText)
+		b.WriteString("\n\n")
+	}
+
 	hooks, _ := p.truth.GetHooks(bookID)
 	if len(hooks) > 0 {
 		b.WriteString("## 必须跟踪的伏笔\n")
@@ -2436,9 +2454,14 @@ func (p *Pipeline) buildContext(_ context.Context, bookID uint, chapterNumber ui
 
 	retrieved, err := p.truth.SearchKnowledge(model.KnowledgeSearchQuery{
 		BookID:        bookID,
-		Query:         buildKnowledgeRetrievalQuery(book, "", userInput, state),
+		Query:         enrichRetrievalQueryWithWiki(retrievalQuery, wikiContext),
 		ChapterNumber: chapterNumber,
-		Limit:         8,
+		SourceTypes: []model.KnowledgeSourceType{
+			model.KnowledgeSourceFoundation,
+			model.KnowledgeSourceSummary,
+			model.KnowledgeSourceEvidence,
+		},
+		Limit: 8,
 	})
 	if err != nil {
 		return "", err

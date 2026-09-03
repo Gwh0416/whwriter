@@ -75,6 +75,7 @@ type ComposeInput struct {
 	Facts              []model.Fact
 	Hooks              []model.Hook
 	Summaries          []model.ChapterSummary
+	WikiContext        *model.WikiGraphContext
 	RetrievedKnowledge []model.KnowledgeSearchResult
 	RadarProfiles      []model.RadarTaxonomyProfile
 	RadarRules         []model.RadarRule
@@ -123,11 +124,16 @@ func (a *ComposerAgent) Compose(in ComposeInput) ComposeOutput {
 		add("truth/book_state", "当前可变状态，约束本章地点、目标、冲突和主角状态。", renderBookState(in.BookState), true, 1600)
 	}
 
-	if len(in.Characters) > 0 {
+	hasWikiContext := in.WikiContext != nil && len(in.WikiContext.Entities) > 0
+	if hasWikiContext {
+		add("wiki/graph_context", "从本章种子实体展开的一跳关系、关联事件与当前有效事实。", RenderWikiGraphContext(in.WikiContext), true, 4800)
+	}
+
+	if !hasWikiContext && len(in.Characters) > 0 {
 		add("truth/characters", "当前主要人物画像和最近状态，用于防止角色行为漂移。", renderCharacters(in.Characters, in.Memo), true, 3200)
 	}
 
-	if len(in.Facts) > 0 {
+	if !hasWikiContext && len(in.Facts) > 0 {
 		add("truth/facts", "长期有效事实，防止设定和关系被重写。", renderFacts(in.Facts, in.Memo), true, 2600)
 	}
 
@@ -247,11 +253,63 @@ func buildRuleStack(in ComposeInput, memoHookIDs map[string]struct{}) RuleStack 
 			{ID: "L3", Name: "planning", Precedence: 60, Scope: "arc"},
 			{ID: "L4", Name: "current_task", Precedence: 90, Scope: "local"},
 		},
-		Hard:            []string{"foundations/story_frame", "foundations/book_rules", "truth/book_state", "truth/facts", "truth/hooks"},
+		Hard:            []string{"foundations/story_frame", "foundations/book_rules", "truth/book_state", "wiki/graph_context", "truth/hooks"},
 		Soft:            []string{"foundations/author_intent", "foundations/style_guide", "foundations/current_focus", "truth/recent_summaries", "chapters/previous_tail"},
 		Diagnostic:      []string{"continuity_audit", "revision_gate", "settler_validation"},
 		ActiveOverrides: overrides,
 	}
+}
+
+func RenderWikiGraphContext(graph *model.WikiGraphContext) string {
+	if graph == nil {
+		return ""
+	}
+	seedIDs := make(map[uint]struct{}, len(graph.Seeds))
+	for _, seed := range graph.Seeds {
+		seedIDs[seed.ID] = struct{}{}
+	}
+
+	var b strings.Builder
+	if len(graph.Entities) > 0 {
+		b.WriteString("### 实体\n")
+		for _, entity := range graph.Entities {
+			role := "邻接"
+			if _, ok := seedIDs[entity.ID]; ok {
+				role = "种子"
+			}
+			fmt.Fprintf(&b, "- [%s/%s] %s", role, entity.EntityType, entity.CanonicalName)
+			if strings.TrimSpace(entity.Summary) != "" {
+				fmt.Fprintf(&b, "：%s", clipComposerText(entity.Summary, 320))
+			}
+			b.WriteByte('\n')
+		}
+	}
+	if len(graph.Relations) > 0 {
+		b.WriteString("\n### 当前有效关系\n")
+		for _, relation := range graph.Relations {
+			object := relation.ObjectName
+			if strings.TrimSpace(object) == "" {
+				object = relation.ObjectLiteral
+			}
+			fmt.Fprintf(&b, "- %s --%s--> %s（第%d章起",
+				relation.SubjectName, relation.Predicate, object, relation.ValidFromChapter)
+			if relation.ValidUntilChapter != nil {
+				fmt.Fprintf(&b, "，至第%d章", *relation.ValidUntilChapter)
+			}
+			b.WriteString("）\n")
+		}
+	}
+	if len(graph.Events) > 0 {
+		b.WriteString("\n### 关联事件\n")
+		for _, event := range graph.Events {
+			fmt.Fprintf(&b, "- 第%d章 %s：%s", event.ChapterNumber, event.Title, clipComposerText(event.Summary, 320))
+			if strings.TrimSpace(event.Consequence) != "" {
+				fmt.Fprintf(&b, "；后果：%s", clipComposerText(event.Consequence, 220))
+			}
+			b.WriteByte('\n')
+		}
+	}
+	return strings.TrimSpace(b.String())
 }
 
 func buildTrace(chapterNumber uint, selected []ContextSource, notes []string) ChapterTrace {

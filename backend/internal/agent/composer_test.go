@@ -81,6 +81,50 @@ func TestComposerComposeAddsRetrievedKnowledgeWithoutReplacingHardContext(t *tes
 	}
 }
 
+func TestComposerPrefersOneHopWikiContextOverGlobalFacts(t *testing.T) {
+	composer := NewComposerAgent()
+	out := composer.Compose(ComposeInput{
+		ChapterNumber: 9,
+		Memo:          "林秋检查青铜戒指。",
+		Facts: []model.Fact{
+			{Subject: "王五", Predicate: "持有", Object: "无关黑刀", Category: "item"},
+		},
+		WikiContext: &model.WikiGraphContext{
+			Seeds: []model.WikiEntity{
+				{ID: 1, EntityType: model.WikiEntityCharacter, CanonicalName: "林秋"},
+			},
+			Entities: []model.WikiEntity{
+				{ID: 1, EntityType: model.WikiEntityCharacter, CanonicalName: "林秋", Summary: "追查旧账"},
+				{ID: 2, EntityType: model.WikiEntityItem, CanonicalName: "青铜戒指", Summary: "旧账线索"},
+			},
+			Relations: []model.WikiRelationView{{
+				WikiRelation: model.WikiRelation{
+					SubjectEntityID:  1,
+					Predicate:        "持有",
+					ObjectEntityID:   uintTestPointer(2),
+					ValidFromChapter: 3,
+				},
+				SubjectName: "林秋",
+				SubjectType: model.WikiEntityCharacter,
+				ObjectName:  "青铜戒指",
+				ObjectType:  model.WikiEntityItem,
+			}},
+		},
+	})
+
+	if !strings.Contains(out.ContextText, "wiki/graph_context") ||
+		!strings.Contains(out.ContextText, "林秋 --持有--> 青铜戒指") {
+		t.Fatalf("wiki graph context missing:\n%s", out.ContextText)
+	}
+	if strings.Contains(out.ContextText, "无关黑刀") {
+		t.Fatalf("global unrelated fact leaked into graph-first context:\n%s", out.ContextText)
+	}
+}
+
+func uintTestPointer(value uint) *uint {
+	return &value
+}
+
 func containsString(values []string, target string) bool {
 	for _, value := range values {
 		if value == target {

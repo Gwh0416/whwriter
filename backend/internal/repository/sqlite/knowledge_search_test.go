@@ -68,6 +68,24 @@ func TestKnowledgeSearchRefreshesBM25Projection(t *testing.T) {
 	if !containsKnowledgeText(results, "青铜戒指") {
 		t.Fatalf("expected story-frame result, got %#v", results)
 	}
+	filtered, err := repo.SearchKnowledge(model.KnowledgeSearchQuery{
+		BookID:        book.ID,
+		Query:         "林秋 青铜戒指",
+		ChapterNumber: 1,
+		SourceTypes:   []model.KnowledgeSourceType{model.KnowledgeSourceFoundation},
+		Limit:         5,
+	})
+	if err != nil {
+		t.Fatalf("search filtered knowledge: %v", err)
+	}
+	if len(filtered) == 0 {
+		t.Fatal("expected filtered foundation result")
+	}
+	for _, result := range filtered {
+		if result.SourceType != model.KnowledgeSourceFoundation {
+			t.Fatalf("unexpected supplemental source: %#v", result)
+		}
+	}
 
 	foundation, err := repo.GetFoundation(book.ID, model.FoundationStoryFrame)
 	if err != nil {
