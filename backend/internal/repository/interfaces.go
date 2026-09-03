@@ -53,6 +53,15 @@ type TokenUsageRepository interface {
 	SummaryAfterID(afterID uint) ([]model.AgentTokenUsageSummary, error)
 }
 
+type WikiRepository interface {
+	RefreshWikiEntities(bookID uint) error
+	UpsertWikiEntity(entity *model.WikiEntity, aliases []string) error
+	ResolveWikiEntity(bookID uint, name string, entityType model.WikiEntityType) (*model.WikiEntity, error)
+	ResolveWikiEntityMentions(bookID uint, text string, limit int) ([]model.WikiEntity, error)
+	ListWikiEntities(bookID uint, entityTypes []model.WikiEntityType, limit int) ([]model.WikiEntity, error)
+	GetWikiEntityAliases(entityID uint) ([]model.WikiEntityAlias, error)
+}
+
 type BookRepository interface {
 	Create(book *model.Book) error
 	List() ([]model.Book, error)
@@ -96,6 +105,7 @@ type RadarRepository interface {
 }
 
 type TruthFileRepository interface {
+	WikiRepository
 	GetCharacters(bookID uint) ([]model.Character, error)
 	SaveCharacter(c *model.Character) error
 	GetFacts(bookID uint) ([]model.Fact, error)

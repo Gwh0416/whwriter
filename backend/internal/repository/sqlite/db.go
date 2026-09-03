@@ -65,6 +65,9 @@ func NewDB(path string) (*gorm.DB, error) {
 		&model.ChapterSummary{},
 		&model.BookFoundation{},
 		&model.ChapterSnapshot{},
+		&model.WikiEntity{},
+		&model.WikiEntityAlias{},
+		&model.WikiEntitySource{},
 		&model.KnowledgeDocument{},
 		&model.KnowledgeChunk{},
 		&model.RuntimeArtifact{},
@@ -90,6 +93,9 @@ func NewDB(path string) (*gorm.DB, error) {
 	}
 	if err := migrateKnowledgeSearchSchema(db); err != nil {
 		return nil, fmt.Errorf("migrate knowledge search schema: %w", err)
+	}
+	if err := rebuildWikiEntities(db); err != nil {
+		return nil, fmt.Errorf("rebuild wiki entities: %w", err)
 	}
 	if err := rebuildKnowledgeSearchIndex(db); err != nil {
 		return nil, fmt.Errorf("rebuild knowledge search index: %w", err)
