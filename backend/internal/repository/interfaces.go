@@ -59,7 +59,9 @@ type WikiRepository interface {
 	ResolveWikiEntity(bookID uint, name string, entityType model.WikiEntityType) (*model.WikiEntity, error)
 	ResolveWikiEntityMentions(bookID uint, text string, limit int) ([]model.WikiEntity, error)
 	ListWikiEntities(bookID uint, entityTypes []model.WikiEntityType, limit int) ([]model.WikiEntity, error)
+	SearchWikiEntities(bookID uint, query string, entityTypes []model.WikiEntityType, limit, offset int) ([]model.WikiEntity, int64, error)
 	GetWikiEntityAliases(entityID uint) ([]model.WikiEntityAlias, error)
+	GetWikiEntityPage(bookID uint, entityID uint) (*model.WikiEntityPage, error)
 	RefreshWikiGraph(bookID uint) error
 	RefreshWikiRelations(bookID uint) error
 	ListWikiRelations(bookID uint, chapterNumber uint, entityIDs []uint, limit int) ([]model.WikiRelationView, error)

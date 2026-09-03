@@ -160,3 +160,17 @@ type WikiGraphContext struct {
 	Relations []WikiRelationView `json:"relations"`
 	Events    []WikiEvent        `json:"events"`
 }
+
+type WikiEventView struct {
+	WikiEvent
+	LocationName string       `json:"location_name,omitempty"`
+	Participants []WikiEntity `json:"participants"`
+}
+
+type WikiEntityPage struct {
+	Entity           WikiEntity             `json:"entity"`
+	Aliases          []WikiEntityAlias      `json:"aliases"`
+	Relations        []WikiRelationView     `json:"relations"`
+	RelationEvidence []WikiRelationEvidence `json:"relation_evidence"`
+	Events           []WikiEventView        `json:"events"`
+}

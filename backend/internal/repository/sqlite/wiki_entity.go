@@ -291,10 +291,11 @@ func collectWikiEntitySpecs(db *gorm.DB, bookID uint) ([]wikiEntitySpec, error) 
 		return nil, err
 	}
 	if strings.TrimSpace(state.CurrentLocation) != "" {
+		locationName := primaryWikiLocation(state.CurrentLocation)
 		add(wikiEntitySpec{
 			EntityType:    model.WikiEntityPlace,
-			Canonical:     state.CurrentLocation,
-			Summary:       "当前故事发生地点",
+			Canonical:     locationName,
+			Summary:       "当前故事发生地点：" + strings.TrimSpace(state.CurrentLocation),
 			FirstChapter:  state.SourceChapter,
 			LastChapter:   state.CurrentChapter,
 			SourceType:    wikiSourceBookState,
@@ -368,9 +369,11 @@ func collectWikiEntitySpecs(db *gorm.DB, bookID uint) ([]wikiEntitySpec, error) 
 	}
 	for _, fact := range facts {
 		if strings.TrimSpace(fact.Subject) != "" {
+			canonical, aliases := parseWikiCanonicalAndAliases(fact.Subject)
 			add(wikiEntitySpec{
-				EntityType:    inferWikiEntityType(fact.Subject, fact.Predicate, fact.Category, true, knownTypes),
-				Canonical:     fact.Subject,
+				EntityType:    inferWikiEntityType(canonical, fact.Predicate, fact.Category, true, knownTypes),
+				Canonical:     canonical,
+				Aliases:       aliases,
 				Summary:       fmt.Sprintf("%s %s", fact.Predicate, fact.Object),
 				FirstChapter:  fact.ValidFromChapter,
 				LastChapter:   fact.SourceChapter,
@@ -380,9 +383,11 @@ func collectWikiEntitySpecs(db *gorm.DB, bookID uint) ([]wikiEntitySpec, error) 
 			})
 		}
 		if looksLikeWikiEntityName(fact.Object) {
+			canonical, aliases := parseWikiCanonicalAndAliases(fact.Object)
 			add(wikiEntitySpec{
-				EntityType:    inferWikiEntityType(fact.Object, fact.Predicate, fact.Category, false, knownTypes),
-				Canonical:     fact.Object,
+				EntityType:    inferWikiEntityType(canonical, fact.Predicate, fact.Category, false, knownTypes),
+				Canonical:     canonical,
+				Aliases:       aliases,
 				Summary:       fmt.Sprintf("%s %s", fact.Subject, fact.Predicate),
 				FirstChapter:  fact.ValidFromChapter,
 				LastChapter:   fact.SourceChapter,
@@ -679,4 +684,14 @@ func maxWikiChapter(left, right uint) uint {
 		return left
 	}
 	return right
+}
+
+func primaryWikiLocation(raw string) string {
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ';' || r == '；' || r == '\n' || r == '\r'
+	})
+	if len(parts) == 0 {
+		return strings.TrimSpace(raw)
+	}
+	return strings.TrimSpace(parts[0])
 }

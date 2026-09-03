@@ -340,6 +340,61 @@ func (h *BookHandler) GetTruthFiles(c *gin.Context) {
 	})
 }
 
+func (h *BookHandler) ListWikiEntities(c *gin.Context) {
+	bookID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		ErrInvalidID.JSON(c)
+		return
+	}
+	if _, err := h.truthRepo.GetBook(uint(bookID)); err != nil {
+		ErrInvalidID.JSON(c)
+		return
+	}
+
+	limit := parsePositiveQueryInt(c.Query("limit"), 100, 500)
+	offset := parsePositiveQueryInt(c.Query("offset"), 0, 100000)
+	entities, total, err := h.truthRepo.SearchWikiEntities(
+		uint(bookID),
+		strings.TrimSpace(c.Query("q")),
+		parseWikiEntityTypes(c.Query("type")),
+		limit,
+		offset,
+	)
+	if err != nil {
+		ErrJSON(c, http.StatusInternalServerError, CodeInternal, "加载 Wiki 实体失败："+err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"items":  entities,
+		"total":  total,
+		"limit":  limit,
+		"offset": offset,
+	})
+}
+
+func (h *BookHandler) GetWikiEntity(c *gin.Context) {
+	bookID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		ErrInvalidID.JSON(c)
+		return
+	}
+	entityID, err := strconv.ParseUint(c.Param("entityID"), 10, 64)
+	if err != nil {
+		ErrInvalidID.JSON(c)
+		return
+	}
+	if _, err := h.truthRepo.GetBook(uint(bookID)); err != nil {
+		ErrInvalidID.JSON(c)
+		return
+	}
+	page, err := h.truthRepo.GetWikiEntityPage(uint(bookID), uint(entityID))
+	if err != nil {
+		ErrInvalidID.JSON(c)
+		return
+	}
+	c.JSON(http.StatusOK, page)
+}
+
 func (h *BookHandler) GetChapterArtifacts(c *gin.Context) {
 	bookID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -363,6 +418,38 @@ func (h *BookHandler) GetChapterArtifacts(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"artifacts": artifacts,
 	})
+}
+
+func parsePositiveQueryInt(raw string, fallback, maximum int) int {
+	value, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || value < 0 {
+		return fallback
+	}
+	if maximum > 0 && value > maximum {
+		return maximum
+	}
+	return value
+}
+
+func parseWikiEntityTypes(raw string) []model.WikiEntityType {
+	values := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == '，' || r == '|'
+	})
+	types := make([]model.WikiEntityType, 0, len(values))
+	for _, value := range values {
+		switch entityType := model.WikiEntityType(strings.TrimSpace(value)); entityType {
+		case model.WikiEntityCharacter,
+			model.WikiEntityPlace,
+			model.WikiEntityItem,
+			model.WikiEntityOrganization,
+			model.WikiEntityEvent,
+			model.WikiEntityHook,
+			model.WikiEntityRule,
+			model.WikiEntityConcept:
+			types = append(types, entityType)
+		}
+	}
+	return types
 }
 
 func (h *BookHandler) ExportBook(c *gin.Context) {

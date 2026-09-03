@@ -98,6 +98,8 @@ func SetupRouter(c *Container) *gin.Engine {
 			api.GET("/books/:id/chapters/:chapter", bookHandler.GetChapter)
 			api.DELETE("/books/:id/chapters/:chapter", bookHandler.DeleteChapter)
 			api.GET("/books/:id/truth-files", bookHandler.GetTruthFiles)
+			api.GET("/books/:id/wiki/entities", bookHandler.ListWikiEntities)
+			api.GET("/books/:id/wiki/entities/:entityID", bookHandler.GetWikiEntity)
 			api.GET("/books/:id/export", bookHandler.ExportBook)
 			api.GET("/books/:id/chapters/:chapter/artifacts", bookHandler.GetChapterArtifacts)
 			api.GET("/write-runs/:runID", bookHandler.GetWriteRun)

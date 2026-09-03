@@ -178,11 +178,131 @@
             <div class="truth-loading" v-if="truthLoading">加载中...</div>
             <div v-else>
               <div class="truth-tabs">
-                <button v-for="tt in truthTabs" :key="tt.key" class="truth-tab" :class="{ active: truthSubTab === tt.key }" @click="truthSubTab = tt.key">
+                <button v-for="tt in truthTabs" :key="tt.key" class="truth-tab" :class="{ active: truthSubTab === tt.key }" @click="switchTruthTab(tt.key)">
                   <span class="truth-tab-icon">{{ tt.icon }}</span>
                   {{ tt.label }}
                   <span class="truth-count" v-if="truthCounts[tt.key] > 0">{{ truthCounts[tt.key] }}</span>
                 </button>
+              </div>
+
+              <div v-if="truthSubTab === 'wiki'" class="truth-panel">
+                <div class="wiki-toolbar">
+                  <input
+                    v-model="wikiQuery"
+                    class="wiki-search"
+                    placeholder="搜索实体或别名"
+                    @keyup.enter="loadWikiEntities()"
+                  />
+                  <select v-model="wikiType" class="wiki-type-select" @change="loadWikiEntities()">
+                    <option v-for="option in wikiTypeOptions" :key="option.value" :value="option.value">
+                      {{ option.label }}
+                    </option>
+                  </select>
+                  <button class="action-btn" :disabled="wikiLoading" @click="loadWikiEntities()">
+                    {{ wikiLoading ? '检索中...' : '检索' }}
+                  </button>
+                </div>
+
+                <div v-if="wikiLoading && !wikiEntities.length" class="truth-loading">加载 Wiki...</div>
+                <div v-else-if="!wikiEntities.length" class="no-data">
+                  <div class="no-data-icon">◫</div>
+                  <p>暂无 Wiki 实体</p>
+                  <span>初始化或完成章节写作后，系统会建立实体与关系索引。</span>
+                </div>
+                <div v-else class="wiki-layout">
+                  <aside class="wiki-entity-nav">
+                    <div class="wiki-result-count">{{ wikiTotal }} 个实体</div>
+                    <button
+                      v-for="entity in wikiEntities"
+                      :key="entity.id"
+                      class="wiki-entity-row"
+                      :class="{ active: selectedWikiEntityID === entity.id }"
+                      @click="selectWikiEntity(entity.id)"
+                    >
+                      <span class="wiki-entity-type">{{ wikiEntityTypeLabel(entity.entity_type) }}</span>
+                      <span class="wiki-entity-name">{{ entity.canonical_name }}</span>
+                      <span v-if="entity.status !== 'active'" class="wiki-inactive">历史</span>
+                    </button>
+                  </aside>
+
+                  <section class="wiki-page">
+                    <div v-if="!wikiPage" class="no-data wiki-page-empty">
+                      <p>选择一个实体查看 Wiki 页面</p>
+                    </div>
+                    <template v-else>
+                      <header class="wiki-page-header">
+                        <div>
+                          <span class="wiki-page-type">{{ wikiEntityTypeLabel(wikiPage.entity.entity_type) }}</span>
+                          <h3>{{ wikiPage.entity.canonical_name }}</h3>
+                        </div>
+                        <span class="wiki-chapter-range">
+                          第{{ wikiPage.entity.first_seen_chapter || 0 }}章
+                          <template v-if="wikiPage.entity.last_seen_chapter">至第{{ wikiPage.entity.last_seen_chapter }}章</template>
+                        </span>
+                      </header>
+                      <p v-if="wikiPage.entity.summary" class="wiki-summary">{{ wikiPage.entity.summary }}</p>
+                      <div v-if="wikiDisplayAliases.length" class="wiki-aliases">
+                        <span class="wiki-section-label">别名</span>
+                        <span v-for="alias in wikiDisplayAliases" :key="alias.id" class="wiki-alias">{{ alias.alias }}</span>
+                      </div>
+
+                      <section class="wiki-section-block">
+                        <div class="wiki-section-heading">
+                          <h4>关系时间线</h4>
+                          <span>{{ wikiPage.relations?.length || 0 }}</span>
+                        </div>
+                        <div v-if="!wikiPage.relations?.length" class="wiki-empty-line">暂无关系</div>
+                        <div v-else class="wiki-timeline">
+                          <article v-for="relation in wikiPage.relations" :key="relation.id" class="wiki-timeline-item">
+                            <div class="wiki-timeline-marker"></div>
+                            <div class="wiki-timeline-content">
+                              <div class="wiki-relation-main">
+                                <strong>{{ wikiRelationLabel(relation) }}</strong>
+                                <span>{{ wikiRelationTarget(relation) }}</span>
+                              </div>
+                              <div class="wiki-relation-meta">
+                                <span>第{{ relation.valid_from_chapter }}章起</span>
+                                <span v-if="relation.valid_until_chapter">至第{{ relation.valid_until_chapter }}章</span>
+                                <span v-else class="wiki-current-tag">当前有效</span>
+                              </div>
+                              <blockquote
+                                v-for="evidence in wikiEvidenceByRelation.get(relation.id) || []"
+                                :key="evidence.id"
+                                class="wiki-evidence"
+                              >
+                                “{{ evidence.quote }}”
+                                <span>第{{ evidence.chapter_number }}章 · {{ evidence.start_offset }}-{{ evidence.end_offset }}</span>
+                              </blockquote>
+                            </div>
+                          </article>
+                        </div>
+                      </section>
+
+                      <section class="wiki-section-block">
+                        <div class="wiki-section-heading">
+                          <h4>事件时间线</h4>
+                          <span>{{ wikiPage.events?.length || 0 }}</span>
+                        </div>
+                        <div v-if="!wikiPage.events?.length" class="wiki-empty-line">暂无关联事件</div>
+                        <div v-else class="wiki-events">
+                          <article v-for="event in wikiPage.events" :key="event.id" class="wiki-event-row">
+                            <div class="wiki-event-chapter">第{{ event.chapter_number }}章</div>
+                            <div class="wiki-event-content">
+                              <div class="wiki-event-title">{{ event.title }}</div>
+                              <p>{{ event.summary }}</p>
+                              <div class="wiki-event-meta">
+                                <span v-if="event.location_name">{{ event.location_name }}</span>
+                                <span v-if="event.participants?.length">
+                                  {{ wikiParticipantNames(event) }}
+                                </span>
+                              </div>
+                            </div>
+                          </article>
+                        </div>
+                      </section>
+                    </template>
+                  </section>
+                </div>
               </div>
 
               <div v-if="truthSubTab === 'state'" class="truth-panel">
@@ -762,8 +882,27 @@ const bookTab = ref('write')
 const truthLoading = ref(false)
 const truthData = ref({ book_state: null, characters: [], facts: [], hooks: [], summaries: [], snapshots: [], foundations: [] })
 const truthSubTab = ref('state')
+const wikiLoading = ref(false)
+const wikiEntities = ref([])
+const wikiTotal = ref(0)
+const wikiQuery = ref('')
+const wikiType = ref('')
+const selectedWikiEntityID = ref(0)
+const wikiPage = ref(null)
+const wikiTypeOptions = [
+  { value: '', label: '全部类型' },
+  { value: 'character', label: '角色' },
+  { value: 'place', label: '地点' },
+  { value: 'item', label: '物品' },
+  { value: 'organization', label: '组织' },
+  { value: 'event', label: '事件' },
+  { value: 'hook', label: '伏笔' },
+  { value: 'rule', label: '规则' },
+  { value: 'concept', label: '概念' },
+]
 const truthTabs = [
   { key: 'state', label: '当前状态', icon: '🧭' },
+  { key: 'wiki', label: 'Wiki', icon: '◫' },
   { key: 'characters', label: '人物', icon: '👤' },
   { key: 'facts', label: '设定', icon: '📋' },
   { key: 'hooks', label: '伏笔', icon: '🪝' },
@@ -773,6 +912,7 @@ const truthTabs = [
 ]
 const truthCounts = computed(() => ({
   state: truthData.value.book_state ? 1 : 0,
+  wiki: wikiTotal.value,
   characters: truthData.value.characters?.length || 0,
   facts: truthData.value.facts?.length || 0,
   hooks: truthData.value.hooks?.length || 0,
@@ -780,6 +920,17 @@ const truthCounts = computed(() => ({
   foundations: truthData.value.foundations?.length || 0,
   snapshots: truthData.value.snapshots?.length || 0,
 }))
+const wikiEvidenceByRelation = computed(() => {
+  const grouped = new Map()
+  for (const evidence of wikiPage.value?.relation_evidence || []) {
+    if (!grouped.has(evidence.relation_id)) grouped.set(evidence.relation_id, [])
+    grouped.get(evidence.relation_id).push(evidence)
+  }
+  return grouped
+})
+const wikiDisplayAliases = computed(() => (
+  (wikiPage.value?.aliases || []).filter(alias => !alias.is_canonical)
+))
 
 const factCategoryMeta = {
   identity: { label: '身份', icon: '🧬' },
@@ -974,6 +1125,39 @@ function roleLabel(r) {
   return labels[r] || r
 }
 
+function wikiEntityTypeLabel(type) {
+  const labels = {
+    character: '角色',
+    place: '地点',
+    item: '物品',
+    organization: '组织',
+    event: '事件',
+    hook: '伏笔',
+    rule: '规则',
+    concept: '概念',
+  }
+  return labels[type] || type
+}
+
+function wikiRelationLabel(relation) {
+  if (!wikiPage.value?.entity) return relation.predicate
+  return relation.subject_entity_id === wikiPage.value.entity.id
+    ? relation.predicate
+    : `${relation.subject_name} · ${relation.predicate}`
+}
+
+function wikiRelationTarget(relation) {
+  if (!wikiPage.value?.entity) return relation.object_name || relation.object_literal || '-'
+  if (relation.subject_entity_id === wikiPage.value.entity.id) {
+    return relation.object_name || relation.object_literal || '-'
+  }
+  return wikiPage.value.entity.canonical_name
+}
+
+function wikiParticipantNames(event) {
+  return (event.participants || []).map(item => item.canonical_name).join('、')
+}
+
 function hookStatusLabel(s) {
   const labels = { seed: '种子', open: '开放', progressing: '推进中', resolved: '已回收', deferred: '延后', stale: '过期' }
   return labels[s] || s
@@ -1053,6 +1237,12 @@ function leaveBookView() {
   bookTab.value = 'write'
   truthSubTab.value = 'state'
   truthData.value = { book_state: null, characters: [], facts: [], hooks: [], summaries: [], snapshots: [], foundations: [] }
+  wikiEntities.value = []
+  wikiTotal.value = 0
+  wikiQuery.value = ''
+  wikiType.value = ''
+  selectedWikiEntityID.value = 0
+  wikiPage.value = null
   writeInput.value = ''
   writeResult.value = null
   showChapterModal.value = false
@@ -1269,9 +1459,64 @@ async function loadTruthFiles() {
     })
     if (res.ok) {
       truthData.value = await res.json()
+      if (truthSubTab.value === 'wiki') await loadWikiEntities()
     }
   } finally {
     truthLoading.value = false
+  }
+}
+
+async function switchTruthTab(nextTab) {
+  truthSubTab.value = nextTab
+  if (nextTab === 'wiki' && !wikiEntities.value.length) {
+    await loadWikiEntities()
+  }
+}
+
+async function loadWikiEntities() {
+  if (!selectedBook.value) return
+  wikiLoading.value = true
+  try {
+    const params = new URLSearchParams({ limit: '200' })
+    if (wikiQuery.value.trim()) params.set('q', wikiQuery.value.trim())
+    if (wikiType.value) params.set('type', wikiType.value)
+    const res = await fetch(`/api/v1/books/${selectedBook.value.id}/wiki/entities?${params.toString()}`)
+    if (!res.ok) {
+      wikiEntities.value = []
+      wikiTotal.value = 0
+      wikiPage.value = null
+      selectedWikiEntityID.value = 0
+      return
+    }
+    const data = await res.json()
+    wikiEntities.value = data.items || []
+    wikiTotal.value = data.total || 0
+    const selectedStillVisible = wikiEntities.value.some(entity => entity.id === selectedWikiEntityID.value)
+    const nextID = selectedStillVisible ? selectedWikiEntityID.value : (wikiEntities.value[0]?.id || 0)
+    if (nextID) {
+      await selectWikiEntity(nextID)
+    } else {
+      selectedWikiEntityID.value = 0
+      wikiPage.value = null
+    }
+  } finally {
+    wikiLoading.value = false
+  }
+}
+
+async function selectWikiEntity(entityID) {
+  if (!selectedBook.value || !entityID) return
+  selectedWikiEntityID.value = entityID
+  wikiLoading.value = true
+  try {
+    const res = await fetch(`/api/v1/books/${selectedBook.value.id}/wiki/entities/${entityID}`)
+    if (res.ok) {
+      wikiPage.value = await res.json()
+    } else {
+      wikiPage.value = null
+    }
+  } finally {
+    wikiLoading.value = false
   }
 }
 
@@ -2294,6 +2539,245 @@ async function setDefaultModel(id) {
 }
 
 .truth-panel { }
+.wiki-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 160px auto;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.wiki-search,
+.wiki-type-select {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #172033;
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+.wiki-search:focus,
+.wiki-type-select:focus { border-color: #2563eb; }
+.wiki-layout {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  min-height: 560px;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+.wiki-entity-nav {
+  min-width: 0;
+  max-height: 680px;
+  overflow-y: auto;
+  border-right: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+.wiki-result-count {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 12px 14px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+}
+.wiki-entity-row {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 46px;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 1px solid #e8edf4;
+  background: transparent;
+  color: #334155;
+  text-align: left;
+  cursor: pointer;
+}
+.wiki-entity-row:hover { background: #eef4ff; }
+.wiki-entity-row.active {
+  background: #e8f0ff;
+  box-shadow: inset 3px 0 #2563eb;
+  color: #0f172a;
+}
+.wiki-entity-type,
+.wiki-page-type {
+  color: #2563eb;
+  font-size: 11px;
+  font-weight: 700;
+}
+.wiki-entity-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+.wiki-inactive {
+  color: #94a3b8;
+  font-size: 10px;
+}
+.wiki-page {
+  min-width: 0;
+  padding: 20px 24px 28px;
+}
+.wiki-page-empty { min-height: 420px; justify-content: center; }
+.wiki-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #e2e8f0;
+}
+.wiki-page-header h3 {
+  margin: 4px 0 0;
+  color: #0f172a;
+  font-size: 22px;
+  letter-spacing: 0;
+}
+.wiki-chapter-range {
+  color: #64748b;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.wiki-summary {
+  margin: 16px 0 0;
+  color: #334155;
+  font-size: 14px;
+  line-height: 1.75;
+}
+.wiki-aliases {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 14px;
+}
+.wiki-section-label {
+  margin-right: 4px;
+  color: #64748b;
+  font-size: 12px;
+}
+.wiki-alias {
+  padding: 2px 7px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  color: #475569;
+  font-size: 11px;
+}
+.wiki-section-block {
+  margin-top: 24px;
+}
+.wiki-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e2e8f0;
+}
+.wiki-section-heading h4 {
+  margin: 0;
+  color: #172033;
+  font-size: 14px;
+}
+.wiki-section-heading span {
+  color: #64748b;
+  font-size: 12px;
+}
+.wiki-empty-line {
+  padding: 18px 0;
+  color: #94a3b8;
+  font-size: 13px;
+}
+.wiki-timeline {
+  padding-top: 8px;
+}
+.wiki-timeline-item {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  gap: 10px;
+  padding: 10px 0;
+}
+.wiki-timeline-marker {
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border: 2px solid #2563eb;
+  border-radius: 50%;
+  background: #fff;
+}
+.wiki-timeline-content { min-width: 0; }
+.wiki-relation-main {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: #334155;
+  font-size: 13px;
+}
+.wiki-relation-main strong { color: #0f172a; }
+.wiki-relation-meta,
+.wiki-event-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 11px;
+}
+.wiki-current-tag { color: #15803d; font-weight: 600; }
+.wiki-evidence {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-left: 2px solid #94a3b8;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.wiki-evidence span {
+  display: block;
+  margin-top: 3px;
+  color: #94a3b8;
+  font-size: 10px;
+}
+.wiki-events {
+  display: flex;
+  flex-direction: column;
+}
+.wiki-event-row {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid #edf1f6;
+}
+.wiki-event-chapter {
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 700;
+}
+.wiki-event-content { min-width: 0; }
+.wiki-event-title {
+  color: #172033;
+  font-size: 13px;
+  font-weight: 700;
+}
+.wiki-event-content p {
+  margin: 5px 0 0;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.65;
+}
 .no-data {
   display: flex;
   flex-direction: column;
@@ -3548,6 +4032,9 @@ async function setDefaultModel(id) {
   .progress-actions {
     flex-wrap: wrap;
   }
+  .wiki-layout {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 640px) {
@@ -3576,6 +4063,27 @@ async function setDefaultModel(id) {
   .write-panel,
   .book-meta {
     padding: 14px;
+  }
+  .wiki-toolbar,
+  .wiki-layout {
+    grid-template-columns: 1fr;
+  }
+  .wiki-entity-nav {
+    max-height: 240px;
+    border-right: 0;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .wiki-page {
+    padding: 16px;
+  }
+  .wiki-page-header,
+  .wiki-relation-main {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .wiki-event-row {
+    grid-template-columns: 1fr;
+    gap: 5px;
   }
   .data-table th,
   .data-table td {
