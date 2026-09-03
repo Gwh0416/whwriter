@@ -13,6 +13,7 @@ const (
 	WikiEntityHook         WikiEntityType = "hook"
 	WikiEntityRule         WikiEntityType = "rule"
 	WikiEntityConcept      WikiEntityType = "concept"
+	WikiEntityLiteral      WikiEntityType = "literal"
 )
 
 type WikiEntityStatus string
@@ -173,4 +174,36 @@ type WikiEntityPage struct {
 	Relations        []WikiRelationView     `json:"relations"`
 	RelationEvidence []WikiRelationEvidence `json:"relation_evidence"`
 	Events           []WikiEventView        `json:"events"`
+}
+
+type WikiGraphNode struct {
+	ID               string           `json:"id"`
+	EntityID         *uint            `json:"entity_id,omitempty"`
+	Label            string           `json:"label"`
+	EntityType       WikiEntityType   `json:"entity_type"`
+	Summary          string           `json:"summary,omitempty"`
+	Status           WikiEntityStatus `json:"status"`
+	FirstSeenChapter uint             `json:"first_seen_chapter"`
+	LastSeenChapter  uint             `json:"last_seen_chapter"`
+	IsSeed           bool             `json:"is_seed"`
+}
+
+type WikiGraphEdge struct {
+	ID                string `json:"id"`
+	RelationID        uint   `json:"relation_id"`
+	Source            string `json:"source"`
+	Target            string `json:"target"`
+	Label             string `json:"label"`
+	ValidFromChapter  uint   `json:"valid_from_chapter"`
+	ValidUntilChapter *uint  `json:"valid_until_chapter,omitempty"`
+	SourceType        string `json:"source_type"`
+}
+
+type WikiGraphPayload struct {
+	BookID  uint            `json:"book_id"`
+	Chapter uint            `json:"chapter"`
+	Depth   int             `json:"depth"`
+	SeedIDs []uint          `json:"seed_ids"`
+	Nodes   []WikiGraphNode `json:"nodes"`
+	Edges   []WikiGraphEdge `json:"edges"`
 }

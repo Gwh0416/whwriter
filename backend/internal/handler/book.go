@@ -395,6 +395,178 @@ func (h *BookHandler) GetWikiEntity(c *gin.Context) {
 	c.JSON(http.StatusOK, page)
 }
 
+func (h *BookHandler) GetWikiGraph(c *gin.Context) {
+	bookIDValue, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		ErrInvalidID.JSON(c)
+		return
+	}
+	bookID := uint(bookIDValue)
+	if _, err := h.truthRepo.GetBook(bookID); err != nil {
+		ErrInvalidID.JSON(c)
+		return
+	}
+
+	chapter := uint(parsePositiveQueryInt(c.Query("chapter"), 0, 1000000))
+	if chapter == 0 {
+		if state, err := h.truthRepo.GetBookState(bookID); err == nil && state != nil {
+			chapter = state.CurrentChapter
+		}
+	}
+	seedIDs := make([]uint, 0, 16)
+	if rawEntityID := strings.TrimSpace(c.Query("entity_id")); rawEntityID != "" {
+		entityID, err := strconv.ParseUint(rawEntityID, 10, 64)
+		if err != nil {
+			ErrInvalidID.JSON(c)
+			return
+		}
+		seedIDs = append(seedIDs, uint(entityID))
+	}
+	searchText := strings.TrimSpace(c.Query("q"))
+	if len(seedIDs) == 0 && searchText == "" {
+		relations, err := h.truthRepo.ListWikiRelations(bookID, chapter, nil, 500)
+		if err != nil {
+			ErrJSON(c, http.StatusInternalServerError, CodeInternal, "加载 Wiki 图谱失败："+err.Error())
+			return
+		}
+		overview, _, err := h.truthRepo.SearchWikiEntities(
+			bookID,
+			"",
+			[]model.WikiEntityType{
+				model.WikiEntityCharacter,
+				model.WikiEntityPlace,
+				model.WikiEntityEvent,
+				model.WikiEntityItem,
+				model.WikiEntityOrganization,
+			},
+			100,
+			0,
+		)
+		if err != nil {
+			ErrJSON(c, http.StatusInternalServerError, CodeInternal, "加载 Wiki 图谱失败："+err.Error())
+			return
+		}
+		seedIDs = selectWikiOverviewSeeds(overview, relations, 16)
+	}
+
+	graph, err := h.truthRepo.BuildWikiGraphContext(model.WikiGraphQuery{
+		BookID:        bookID,
+		Text:          searchText,
+		SeedEntityIDs: seedIDs,
+		ChapterNumber: chapter,
+		SeedLimit:     16,
+		RelationLimit: 160,
+		EventLimit:    40,
+	})
+	if err != nil {
+		ErrJSON(c, http.StatusInternalServerError, CodeInternal, "加载 Wiki 图谱失败："+err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, buildWikiGraphPayload(bookID, chapter, graph))
+}
+
+func buildWikiGraphPayload(bookID uint, chapter uint, graph *model.WikiGraphContext) model.WikiGraphPayload {
+	payload := model.WikiGraphPayload{
+		BookID:  bookID,
+		Chapter: chapter,
+		Depth:   1,
+	}
+	if graph == nil {
+		return payload
+	}
+	seedSet := make(map[uint]struct{}, len(graph.Seeds))
+	for _, seed := range graph.Seeds {
+		seedSet[seed.ID] = struct{}{}
+		payload.SeedIDs = append(payload.SeedIDs, seed.ID)
+	}
+	nodeIDs := make(map[string]struct{}, len(graph.Entities)+len(graph.Relations))
+	for _, entity := range graph.Entities {
+		nodeID := wikiEntityGraphID(entity.ID)
+		nodeIDs[nodeID] = struct{}{}
+		entityID := entity.ID
+		_, isSeed := seedSet[entity.ID]
+		payload.Nodes = append(payload.Nodes, model.WikiGraphNode{
+			ID:               nodeID,
+			EntityID:         &entityID,
+			Label:            entity.CanonicalName,
+			EntityType:       entity.EntityType,
+			Summary:          entity.Summary,
+			Status:           entity.Status,
+			FirstSeenChapter: entity.FirstSeenChapter,
+			LastSeenChapter:  entity.LastSeenChapter,
+			IsSeed:           isSeed,
+		})
+	}
+	for _, relation := range graph.Relations {
+		sourceID := wikiEntityGraphID(relation.SubjectEntityID)
+		if _, ok := nodeIDs[sourceID]; !ok {
+			continue
+		}
+		targetID := ""
+		if relation.ObjectEntityID != nil {
+			targetID = wikiEntityGraphID(*relation.ObjectEntityID)
+		} else if strings.TrimSpace(relation.ObjectLiteral) != "" {
+			targetID = fmt.Sprintf("literal:%d", relation.ID)
+			if _, ok := nodeIDs[targetID]; !ok {
+				nodeIDs[targetID] = struct{}{}
+				payload.Nodes = append(payload.Nodes, model.WikiGraphNode{
+					ID:         targetID,
+					Label:      relation.ObjectLiteral,
+					EntityType: model.WikiEntityLiteral,
+					Status:     model.WikiEntityActive,
+				})
+			}
+		}
+		if targetID == "" {
+			continue
+		}
+		if _, ok := nodeIDs[targetID]; !ok {
+			continue
+		}
+		payload.Edges = append(payload.Edges, model.WikiGraphEdge{
+			ID:                fmt.Sprintf("relation:%d", relation.ID),
+			RelationID:        relation.ID,
+			Source:            sourceID,
+			Target:            targetID,
+			Label:             relation.Predicate,
+			ValidFromChapter:  relation.ValidFromChapter,
+			ValidUntilChapter: relation.ValidUntilChapter,
+			SourceType:        relation.SourceType,
+		})
+	}
+	return payload
+}
+
+func wikiEntityGraphID(entityID uint) string {
+	return fmt.Sprintf("entity:%d", entityID)
+}
+
+func selectWikiOverviewSeeds(entities []model.WikiEntity, relations []model.WikiRelationView, limit int) []uint {
+	connected := make(map[uint]struct{}, len(relations)*2)
+	for _, relation := range relations {
+		connected[relation.SubjectEntityID] = struct{}{}
+		if relation.ObjectEntityID != nil {
+			connected[*relation.ObjectEntityID] = struct{}{}
+		}
+	}
+	seeds := make([]uint, 0, limit)
+	for _, entity := range entities {
+		if entity.Status != model.WikiEntityActive {
+			continue
+		}
+		if len(connected) > 0 {
+			if _, ok := connected[entity.ID]; !ok {
+				continue
+			}
+		}
+		seeds = append(seeds, entity.ID)
+		if len(seeds) == limit {
+			break
+		}
+	}
+	return seeds
+}
+
 func (h *BookHandler) GetChapterArtifacts(c *gin.Context) {
 	bookID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {

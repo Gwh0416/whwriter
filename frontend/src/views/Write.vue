@@ -187,6 +187,10 @@
 
               <div v-if="truthSubTab === 'wiki'" class="truth-panel">
                 <div class="wiki-toolbar">
+                  <div class="wiki-view-switch" aria-label="Wiki 视图">
+                    <button :class="{ active: wikiViewMode === 'page' }" @click="switchWikiView('page')">Wiki 页</button>
+                    <button :class="{ active: wikiViewMode === 'graph' }" @click="switchWikiView('graph')">关系图</button>
+                  </div>
                   <input
                     v-model="wikiQuery"
                     class="wiki-search"
@@ -204,12 +208,12 @@
                 </div>
 
                 <div v-if="wikiLoading && !wikiEntities.length" class="truth-loading">加载 Wiki...</div>
-                <div v-else-if="!wikiEntities.length" class="no-data">
+                <div v-else-if="wikiViewMode === 'page' && !wikiEntities.length" class="no-data">
                   <div class="no-data-icon">◫</div>
                   <p>暂无 Wiki 实体</p>
                   <span>初始化或完成章节写作后，系统会建立实体与关系索引。</span>
                 </div>
-                <div v-else class="wiki-layout">
+                <div v-else-if="wikiViewMode === 'page'" class="wiki-layout">
                   <aside class="wiki-entity-nav">
                     <div class="wiki-result-count">{{ wikiTotal }} 个实体</div>
                     <button
@@ -302,6 +306,90 @@
                       </section>
                     </template>
                   </section>
+                </div>
+
+                <div v-else class="wiki-graph-workspace" role="region" aria-label="Agent Wiki 关系图">
+                  <div class="wiki-graph-toolbar">
+                    <div class="wiki-graph-stat">
+                      <strong>{{ wikiGraphData.nodes?.length || 0 }}</strong>
+                      <span>节点</span>
+                      <strong>{{ wikiGraphData.edges?.length || 0 }}</strong>
+                      <span>关系</span>
+                    </div>
+                    <label class="wiki-graph-chapter">
+                      <span>章节视图</span>
+                      <input
+                        v-model.number="wikiGraphChapter"
+                        type="number"
+                        min="0"
+                        :max="wikiGraphMaxChapter"
+                        @change="reloadWikiGraph()"
+                      />
+                    </label>
+                    <div class="wiki-graph-actions">
+                      <button class="action-btn" :disabled="wikiGraphLoading || !selectedWikiEntityID" @click="reloadWikiGraph()">
+                        中心实体
+                      </button>
+                      <button class="action-btn" :disabled="wikiGraphLoading" @click="loadWikiGraph({ overview: true })">
+                        全局概览
+                      </button>
+                      <button class="action-btn" :disabled="!wikiGraphData.nodes?.length" @click="fitWikiGraph()">
+                        适配视图
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="wiki-graph-filters">
+                    <label v-for="option in wikiGraphTypeOptions" :key="option.value">
+                      <input
+                        v-model="wikiGraphVisibleTypes"
+                        type="checkbox"
+                        :value="option.value"
+                        @change="applyWikiGraphFilters()"
+                      />
+                      <span class="wiki-legend-dot" :class="'type-' + option.value"></span>
+                      {{ option.label }}
+                    </label>
+                  </div>
+
+                  <div class="wiki-graph-main">
+                    <div class="wiki-graph-stage">
+                      <div
+                        ref="wikiGraphContainer"
+                        class="wiki-graph-canvas"
+                        role="application"
+                        aria-label="Wiki 关系图画布"
+                        tabindex="0"
+                      ></div>
+                      <div v-if="wikiGraphLoading" class="wiki-graph-overlay">正在布局图谱...</div>
+                      <div v-else-if="!wikiGraphData.nodes?.length" class="wiki-graph-overlay">暂无可展示的关系</div>
+                    </div>
+                    <aside class="wiki-graph-inspector">
+                      <template v-if="wikiPage?.entity">
+                        <span class="wiki-page-type">{{ wikiEntityTypeLabel(wikiPage.entity.entity_type) }}</span>
+                        <h3>{{ wikiPage.entity.canonical_name }}</h3>
+                        <p>{{ wikiPage.entity.summary || '暂无摘要' }}</p>
+                        <dl>
+                          <div>
+                            <dt>关系</dt>
+                            <dd>{{ wikiPage.relations?.length || 0 }}</dd>
+                          </div>
+                          <div>
+                            <dt>事件</dt>
+                            <dd>{{ wikiPage.events?.length || 0 }}</dd>
+                          </div>
+                        </dl>
+                        <button
+                          class="action-btn"
+                          :disabled="wikiGraphLoading"
+                          @click="expandWikiGraph(wikiPage.entity.id)"
+                        >
+                          展开一跳
+                        </button>
+                      </template>
+                      <div v-else class="wiki-empty-line">点击节点查看详情</div>
+                    </aside>
+                  </div>
                 </div>
               </div>
 
@@ -854,7 +942,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, reactive, watch } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted, reactive, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { marked } from 'marked'
 import yaml from 'js-yaml'
@@ -889,6 +977,38 @@ const wikiQuery = ref('')
 const wikiType = ref('')
 const selectedWikiEntityID = ref(0)
 const wikiPage = ref(null)
+const wikiViewMode = ref('page')
+const wikiGraphLoading = ref(false)
+const wikiGraphData = ref({ nodes: [], edges: [], seed_ids: [], chapter: 0 })
+const wikiGraphContainer = ref(null)
+const wikiGraphChapter = ref(0)
+const wikiGraphVisibleTypes = ref([
+  'character', 'place', 'item', 'organization', 'event', 'hook', 'rule', 'concept', 'literal',
+])
+const wikiGraphTypeOptions = [
+  { value: 'character', label: '角色' },
+  { value: 'place', label: '地点' },
+  { value: 'item', label: '物品' },
+  { value: 'organization', label: '组织' },
+  { value: 'event', label: '事件' },
+  { value: 'hook', label: '伏笔' },
+  { value: 'rule', label: '规则' },
+  { value: 'concept', label: '概念' },
+  { value: 'literal', label: '数值' },
+]
+const wikiGraphColors = {
+  character: '#2563eb',
+  place: '#16a34a',
+  item: '#d97706',
+  organization: '#7c3aed',
+  event: '#dc2626',
+  hook: '#0891b2',
+  rule: '#475569',
+  concept: '#64748b',
+  literal: '#94a3b8',
+}
+let wikiCy = null
+let cytoscapeFactory = null
 const wikiTypeOptions = [
   { value: '', label: '全部类型' },
   { value: 'character', label: '角色' },
@@ -930,6 +1050,10 @@ const wikiEvidenceByRelation = computed(() => {
 })
 const wikiDisplayAliases = computed(() => (
   (wikiPage.value?.aliases || []).filter(alias => !alias.is_canonical)
+))
+const wikiGraphMaxChapter = computed(() => Math.max(
+  chapters.value.length,
+  truthData.value.book_state?.current_chapter || 0,
 ))
 
 const factCategoryMeta = {
@@ -1135,6 +1259,7 @@ function wikiEntityTypeLabel(type) {
     hook: '伏笔',
     rule: '规则',
     concept: '概念',
+    literal: '数值',
   }
   return labels[type] || type
 }
@@ -1232,6 +1357,7 @@ function isLatestChapter(ch) {
 
 function leaveBookView() {
   stopWriteRunPolling()
+  destroyWikiGraph()
   selectedBook.value = null
   chapters.value = []
   bookTab.value = 'write'
@@ -1243,6 +1369,9 @@ function leaveBookView() {
   wikiType.value = ''
   selectedWikiEntityID.value = 0
   wikiPage.value = null
+  wikiViewMode.value = 'page'
+  wikiGraphData.value = { nodes: [], edges: [], seed_ids: [], chapter: 0 }
+  wikiGraphChapter.value = 0
   writeInput.value = ''
   writeResult.value = null
   showChapterModal.value = false
@@ -1307,6 +1436,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   stopWriteRunPolling()
+  destroyWikiGraph()
 })
 
 watch(() => route.query.tab, async (next) => {
@@ -1467,10 +1597,27 @@ async function loadTruthFiles() {
 }
 
 async function switchTruthTab(nextTab) {
+  if (nextTab !== 'wiki') destroyWikiGraph()
   truthSubTab.value = nextTab
   if (nextTab === 'wiki' && !wikiEntities.value.length) {
     await loadWikiEntities()
+  } else if (nextTab === 'wiki' && wikiViewMode.value === 'graph') {
+    await nextTick()
+    await reloadWikiGraph()
   }
+}
+
+async function switchWikiView(mode) {
+  wikiViewMode.value = mode
+  if (mode === 'page') {
+    destroyWikiGraph()
+    return
+  }
+  if (wikiGraphChapter.value === 0) {
+    wikiGraphChapter.value = truthData.value.book_state?.current_chapter || wikiGraphMaxChapter.value
+  }
+  await nextTick()
+  await loadWikiGraph({ overview: true })
 }
 
 async function loadWikiEntities() {
@@ -1499,6 +1646,10 @@ async function loadWikiEntities() {
       selectedWikiEntityID.value = 0
       wikiPage.value = null
     }
+    if (wikiViewMode.value === 'graph') {
+      await nextTick()
+      await reloadWikiGraph()
+    }
   } finally {
     wikiLoading.value = false
   }
@@ -1512,11 +1663,206 @@ async function selectWikiEntity(entityID) {
     const res = await fetch(`/api/v1/books/${selectedBook.value.id}/wiki/entities/${entityID}`)
     if (res.ok) {
       wikiPage.value = await res.json()
+      highlightWikiGraphEntity(entityID)
     } else {
       wikiPage.value = null
     }
   } finally {
     wikiLoading.value = false
+  }
+}
+
+async function reloadWikiGraph() {
+  return loadWikiGraph({
+    entityID: selectedWikiEntityID.value,
+    overview: !selectedWikiEntityID.value,
+  })
+}
+
+async function loadWikiGraph({ entityID = 0, overview = false, append = false } = {}) {
+  if (!selectedBook.value || wikiViewMode.value !== 'graph') return
+  wikiGraphLoading.value = true
+  try {
+    const params = new URLSearchParams()
+    const chapter = Math.max(0, Number(wikiGraphChapter.value) || 0)
+    params.set('chapter', String(chapter))
+    if (!overview && entityID) params.set('entity_id', String(entityID))
+    const res = await fetch(`/api/v1/books/${selectedBook.value.id}/wiki/graph?${params.toString()}`)
+    if (!res.ok) {
+      if (!append) wikiGraphData.value = { nodes: [], edges: [], seed_ids: [], chapter }
+      return
+    }
+    const incoming = await res.json()
+    wikiGraphChapter.value = incoming.chapter || chapter
+    wikiGraphData.value = append
+      ? mergeWikiGraphData(wikiGraphData.value, incoming)
+      : incoming
+    await nextTick()
+    await renderWikiGraph()
+    const selectedInGraph = (incoming.nodes || []).some(node => node.entity_id === selectedWikiEntityID.value)
+    if (!append && !selectedInGraph && incoming.seed_ids?.length) {
+      await selectWikiEntity(incoming.seed_ids[0])
+    }
+  } finally {
+    wikiGraphLoading.value = false
+  }
+}
+
+async function expandWikiGraph(entityID) {
+  await loadWikiGraph({ entityID, append: true })
+}
+
+function mergeWikiGraphData(current, incoming) {
+  const nodes = new Map((current.nodes || []).map(node => [node.id, node]))
+  const edges = new Map((current.edges || []).map(edge => [edge.id, edge]))
+  for (const node of incoming.nodes || []) nodes.set(node.id, { ...nodes.get(node.id), ...node })
+  for (const edge of incoming.edges || []) edges.set(edge.id, { ...edges.get(edge.id), ...edge })
+  return {
+    ...current,
+    chapter: incoming.chapter,
+    seed_ids: Array.from(new Set([...(current.seed_ids || []), ...(incoming.seed_ids || [])])),
+    nodes: Array.from(nodes.values()),
+    edges: Array.from(edges.values()),
+  }
+}
+
+async function renderWikiGraph() {
+  if (!wikiGraphContainer.value) return
+  if (!cytoscapeFactory) {
+    const module = await import('cytoscape')
+    cytoscapeFactory = module.default
+  }
+  destroyWikiGraph()
+  const elements = [
+    ...(wikiGraphData.value.nodes || []).map(node => ({
+      data: {
+        id: node.id,
+        entity_id: node.entity_id || 0,
+        label: node.label,
+        type: node.entity_type,
+        summary: node.summary || '',
+        is_seed: Boolean(node.is_seed),
+      },
+    })),
+    ...(wikiGraphData.value.edges || []).map(edge => ({
+      data: {
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        label: edge.label,
+        relation_id: edge.relation_id,
+      },
+    })),
+  ]
+  wikiCy = cytoscapeFactory({
+    container: wikiGraphContainer.value,
+    elements,
+    minZoom: 0.25,
+    maxZoom: 2.5,
+    style: [
+      {
+        selector: 'node',
+        style: {
+          width: ele => ele.data('is_seed') ? 54 : (ele.data('type') === 'literal' ? 34 : 44),
+          height: ele => ele.data('is_seed') ? 54 : (ele.data('type') === 'literal' ? 34 : 44),
+          'background-color': ele => wikiGraphColors[ele.data('type')] || '#64748b',
+          'border-width': ele => ele.data('is_seed') ? 4 : 2,
+          'border-color': '#ffffff',
+          label: 'data(label)',
+          color: '#172033',
+          'font-size': 11,
+          'font-weight': 600,
+          'text-wrap': 'wrap',
+          'text-max-width': 110,
+          'text-valign': 'bottom',
+          'text-margin-y': 8,
+          'overlay-opacity': 0,
+        },
+      },
+      {
+        selector: 'edge',
+        style: {
+          width: 1.5,
+          'line-color': '#94a3b8',
+          'target-arrow-color': '#94a3b8',
+          'target-arrow-shape': 'triangle',
+          'curve-style': 'bezier',
+          label: 'data(label)',
+          color: '#475569',
+          'font-size': 9,
+          'text-rotation': 'autorotate',
+          'text-background-color': '#ffffff',
+          'text-background-opacity': 0.9,
+          'text-background-padding': 2,
+          'overlay-opacity': 0,
+        },
+      },
+      {
+        selector: 'node:selected',
+        style: {
+          'border-width': 5,
+          'border-color': '#f59e0b',
+        },
+      },
+      {
+        selector: '.is-hidden',
+        style: { display: 'none' },
+      },
+    ],
+    layout: {
+      name: 'cose',
+      animate: false,
+      fit: true,
+      padding: 80,
+      nodeRepulsion: 9000,
+      idealEdgeLength: 105,
+      edgeElasticity: 120,
+      gravity: 0.35,
+      numIter: 1200,
+    },
+  })
+  wikiCy.on('tap', 'node', event => {
+    const entityID = Number(event.target.data('entity_id'))
+    if (entityID > 0) selectWikiEntity(entityID)
+  })
+  applyWikiGraphFilters()
+  highlightWikiGraphEntity(selectedWikiEntityID.value)
+}
+
+function applyWikiGraphFilters() {
+  if (!wikiCy) return
+  const visibleTypes = new Set(wikiGraphVisibleTypes.value)
+  wikiCy.batch(() => {
+    wikiCy.nodes().forEach(node => {
+      node.toggleClass('is-hidden', !visibleTypes.has(node.data('type')))
+    })
+    wikiCy.edges().forEach(edge => {
+      const hidden = edge.source().hasClass('is-hidden') || edge.target().hasClass('is-hidden')
+      edge.toggleClass('is-hidden', hidden)
+    })
+  })
+}
+
+function highlightWikiGraphEntity(entityID) {
+  if (!wikiCy) return
+  wikiCy.nodes().unselect()
+  const node = wikiCy.getElementById(`entity:${entityID}`)
+  if (node?.length) {
+    node.select()
+    wikiCy.animate({ center: { eles: node }, duration: 250 })
+  }
+}
+
+function fitWikiGraph() {
+  if (!wikiCy) return
+  wikiCy.resize()
+  wikiCy.fit(wikiCy.elements().not('.is-hidden'), 72)
+}
+
+function destroyWikiGraph() {
+  if (wikiCy) {
+    wikiCy.destroy()
+    wikiCy = null
   }
 }
 
@@ -2541,9 +2887,33 @@ async function setDefaultModel(id) {
 .truth-panel { }
 .wiki-toolbar {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) 160px auto;
+  grid-template-columns: auto minmax(220px, 1fr) 160px auto;
   gap: 10px;
   margin-bottom: 14px;
+}
+.wiki-view-switch {
+  display: inline-flex;
+  min-height: 38px;
+  padding: 3px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #f1f5f9;
+}
+.wiki-view-switch button {
+  min-width: 68px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #64748b;
+  font-size: 12px;
+  cursor: pointer;
+}
+.wiki-view-switch button.active {
+  background: #fff;
+  color: #1d4ed8;
+  box-shadow: 0 1px 2px rgba(15,23,42,0.12);
+  font-weight: 700;
 }
 .wiki-search,
 .wiki-type-select {
@@ -2777,6 +3147,161 @@ async function setDefaultModel(id) {
   color: #475569;
   font-size: 13px;
   line-height: 1.65;
+}
+.wiki-graph-workspace {
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+.wiki-graph-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 52px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+.wiki-graph-stat {
+  display: grid;
+  grid-template-columns: auto auto auto auto;
+  align-items: baseline;
+  gap: 5px;
+  color: #64748b;
+  font-size: 11px;
+}
+.wiki-graph-stat strong {
+  color: #172033;
+  font-size: 14px;
+}
+.wiki-graph-chapter {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #64748b;
+  font-size: 12px;
+}
+.wiki-graph-chapter input {
+  width: 76px;
+  min-height: 32px;
+  padding: 5px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  background: #fff;
+  color: #172033;
+  font: inherit;
+}
+.wiki-graph-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+.wiki-graph-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 9px 12px;
+  border-bottom: 1px solid #e2e8f0;
+}
+.wiki-graph-filters label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #475569;
+  font-size: 11px;
+  cursor: pointer;
+}
+.wiki-graph-filters input {
+  width: 14px;
+  height: 14px;
+}
+.wiki-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #64748b;
+}
+.wiki-legend-dot.type-character { background: #2563eb; }
+.wiki-legend-dot.type-place { background: #16a34a; }
+.wiki-legend-dot.type-item { background: #d97706; }
+.wiki-legend-dot.type-organization { background: #7c3aed; }
+.wiki-legend-dot.type-event { background: #dc2626; }
+.wiki-legend-dot.type-hook { background: #0891b2; }
+.wiki-legend-dot.type-rule { background: #475569; }
+.wiki-legend-dot.type-concept { background: #64748b; }
+.wiki-legend-dot.type-literal { background: #94a3b8; }
+.wiki-graph-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  min-height: 680px;
+}
+.wiki-graph-stage {
+  position: relative;
+  min-width: 0;
+  min-height: 680px;
+  background:
+    linear-gradient(#edf1f6 1px, transparent 1px),
+    linear-gradient(90deg, #edf1f6 1px, transparent 1px),
+    #fbfcfe;
+  background-size: 24px 24px;
+}
+.wiki-graph-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.wiki-graph-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,0.72);
+  color: #64748b;
+  font-size: 13px;
+  pointer-events: none;
+}
+.wiki-graph-inspector {
+  min-width: 0;
+  padding: 18px;
+  border-left: 1px solid #e2e8f0;
+  background: #fff;
+}
+.wiki-graph-inspector h3 {
+  margin: 5px 0 10px;
+  color: #0f172a;
+  font-size: 18px;
+  letter-spacing: 0;
+}
+.wiki-graph-inspector p {
+  margin: 0;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.wiki-graph-inspector dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 18px 0;
+}
+.wiki-graph-inspector dl div {
+  padding: 9px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+.wiki-graph-inspector dt {
+  color: #64748b;
+  font-size: 10px;
+}
+.wiki-graph-inspector dd {
+  margin: 3px 0 0;
+  color: #172033;
+  font-size: 16px;
+  font-weight: 700;
 }
 .no-data {
   display: flex;
@@ -4035,6 +4560,9 @@ async function setDefaultModel(id) {
   .wiki-layout {
     grid-template-columns: 220px minmax(0, 1fr);
   }
+  .wiki-graph-main {
+    grid-template-columns: minmax(0, 1fr) 240px;
+  }
 }
 
 @media (max-width: 640px) {
@@ -4068,6 +4596,12 @@ async function setDefaultModel(id) {
   .wiki-layout {
     grid-template-columns: 1fr;
   }
+  .wiki-view-switch {
+    width: 100%;
+  }
+  .wiki-view-switch button {
+    flex: 1;
+  }
   .wiki-entity-nav {
     max-height: 240px;
     border-right: 0;
@@ -4084,6 +4618,25 @@ async function setDefaultModel(id) {
   .wiki-event-row {
     grid-template-columns: 1fr;
     gap: 5px;
+  }
+  .wiki-graph-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .wiki-graph-actions {
+    margin-left: 0;
+    flex-wrap: wrap;
+  }
+  .wiki-graph-main {
+    grid-template-columns: 1fr;
+  }
+  .wiki-graph-stage,
+  .wiki-graph-main {
+    min-height: 480px;
+  }
+  .wiki-graph-inspector {
+    border-top: 1px solid #e2e8f0;
+    border-left: 0;
   }
   .data-table th,
   .data-table td {
