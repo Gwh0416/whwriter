@@ -1,6 +1,8 @@
 package sqlite
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strconv"
@@ -21,11 +23,71 @@ func rebuildWikiRelations(db *gorm.DB) error {
 	}
 	repo := &truthFileRepo{db: db}
 	for _, bookID := range bookIDs {
+		if err := backfillWikiEventsFromSummaries(repo, bookID); err != nil {
+			return fmt.Errorf("backfill book %d wiki events: %w", bookID, err)
+		}
 		if err := repo.RefreshWikiRelations(bookID); err != nil {
 			return fmt.Errorf("refresh book %d wiki relations: %w", bookID, err)
 		}
 	}
 	return nil
+}
+
+func backfillWikiEventsFromSummaries(repo *truthFileRepo, bookID uint) error {
+	var summaries []model.ChapterSummary
+	if err := repo.db.Where("book_id = ?", bookID).Order("chapter_number").Find(&summaries).Error; err != nil {
+		return err
+	}
+	for _, summary := range summaries {
+		var count int64
+		if err := repo.db.Model(&model.WikiEvent{}).
+			Where("book_id = ? AND chapter_number = ?", bookID, summary.ChapterNumber).
+			Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 || strings.TrimSpace(summary.KeyEvents) == "" {
+			continue
+		}
+		if err := repo.ReplaceChapterWikiEvents(bookID, summary.ChapterNumber, []model.WikiEventDraft{{
+			EventKey:      fmt.Sprintf("CH%04d-E01", summary.ChapterNumber),
+			Title:         strings.TrimSpace(summary.Title),
+			EventType:     strings.TrimSpace(summary.ChapterType),
+			Summary:       strings.TrimSpace(summary.KeyEvents),
+			Participants:  splitWikiEntityNames(summary.CharactersAppeared),
+			Consequence:   strings.TrimSpace(summary.StateChanges),
+			EvidenceStart: -1,
+			EvidenceEnd:   -1,
+		}}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func splitWikiEntityNames(raw string) []string {
+	values := strings.FieldsFunc(raw, func(r rune) bool {
+		switch r {
+		case ',', '，', '、', '/', '|', ';', '；':
+			return true
+		default:
+			return false
+		}
+	})
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		normalized := normalizeWikiEntityName(value)
+		if normalized == "" {
+			continue
+		}
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 
 func (r *truthFileRepo) RefreshWikiRelations(bookID uint) error {
@@ -123,7 +185,7 @@ func syncWikiFactRelations(db *gorm.DB, bookID uint) error {
 
 		sourceID := strconv.FormatUint(uint64(fact.ID), 10)
 		sourceIDs = append(sourceIDs, sourceID)
-		relation := model.WikiRelation{
+		relation, err := upsertWikiRelation(db, &model.WikiRelation{
 			BookID:            bookID,
 			SubjectEntityID:   subject.ID,
 			Predicate:         strings.TrimSpace(fact.Predicate),
@@ -135,19 +197,16 @@ func syncWikiFactRelations(db *gorm.DB, bookID uint) error {
 			SourceType:        wikiRelationSourceFact,
 			SourceID:          sourceID,
 			Confidence:        1,
+		})
+		if err != nil {
+			return err
 		}
-		if err := db.Clauses(clause.OnConflict{
-			Columns: []clause.Column{
-				{Name: "book_id"},
-				{Name: "source_type"},
-				{Name: "source_id"},
-			},
-			DoUpdates: clause.AssignmentColumns([]string{
-				"subject_entity_id", "predicate", "object_entity_id", "object_literal",
-				"qualifier_json", "valid_from_chapter", "valid_until_chapter",
-				"source_chapter", "confidence", "updated_at",
-			}),
-		}).Create(&relation).Error; err != nil {
+		artifactID, err := findEvidenceArtifactID(db, bookID, fact.SourceChapter)
+		if err != nil {
+			return err
+		}
+		if err := replaceWikiRelationEvidence(db, relation.ID, bookID, fact.SourceChapter, artifactID,
+			fact.EvidenceQuote, fact.EvidenceStart, fact.EvidenceEnd); err != nil {
 			return err
 		}
 	}
@@ -156,7 +215,19 @@ func syncWikiFactRelations(db *gorm.DB, bookID uint) error {
 	if len(sourceIDs) > 0 {
 		stale = stale.Where("source_id NOT IN ?", sourceIDs)
 	}
-	return stale.Delete(&model.WikiRelation{}).Error
+	var staleIDs []uint
+	if err := stale.Model(&model.WikiRelation{}).Pluck("id", &staleIDs).Error; err != nil {
+		return err
+	}
+	if len(staleIDs) > 0 {
+		if err := db.Where("relation_id IN ?", staleIDs).Delete(&model.WikiRelationEvidence{}).Error; err != nil {
+			return err
+		}
+		if err := db.Where("id IN ?", staleIDs).Delete(&model.WikiRelation{}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func resolveWikiEntityInTx(db *gorm.DB, bookID uint, name string, entityType model.WikiEntityType) (*model.WikiEntity, error) {
@@ -182,7 +253,89 @@ func resolveWikiEntityInTx(db *gorm.DB, bookID uint, name string, entityType mod
 }
 
 func deleteBookWikiRelations(db *gorm.DB, bookID uint) error {
+	if err := db.Where("book_id = ?", bookID).Delete(&model.WikiRelationEvidence{}).Error; err != nil {
+		return err
+	}
 	return db.Where("book_id = ?", bookID).Delete(&model.WikiRelation{}).Error
+}
+
+func (r *truthFileRepo) GetWikiRelationEvidence(relationIDs []uint) ([]model.WikiRelationEvidence, error) {
+	if len(relationIDs) == 0 {
+		return nil, nil
+	}
+	var evidence []model.WikiRelationEvidence
+	err := r.db.Where("relation_id IN ?", relationIDs).
+		Order("chapter_number DESC, id DESC").
+		Find(&evidence).Error
+	return evidence, err
+}
+
+func upsertWikiRelation(db *gorm.DB, relation *model.WikiRelation) (*model.WikiRelation, error) {
+	if err := db.Clauses(clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "book_id"},
+			{Name: "source_type"},
+			{Name: "source_id"},
+		},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"subject_entity_id", "predicate", "object_entity_id", "object_literal",
+			"qualifier_json", "valid_from_chapter", "valid_until_chapter",
+			"source_chapter", "confidence", "updated_at",
+		}),
+	}).Create(relation).Error; err != nil {
+		return nil, err
+	}
+	if relation.ID == 0 {
+		if err := db.Where("book_id = ? AND source_type = ? AND source_id = ?",
+			relation.BookID, relation.SourceType, relation.SourceID).First(relation).Error; err != nil {
+			return nil, err
+		}
+	}
+	return relation, nil
+}
+
+func replaceWikiRelationEvidence(
+	db *gorm.DB,
+	relationID uint,
+	bookID uint,
+	chapterNumber uint,
+	artifactID *uint,
+	quote string,
+	startOffset int,
+	endOffset int,
+) error {
+	if err := db.Where("relation_id = ?", relationID).Delete(&model.WikiRelationEvidence{}).Error; err != nil {
+		return err
+	}
+	quote = strings.TrimSpace(quote)
+	if quote == "" {
+		return nil
+	}
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%d:%d:%s", startOffset, endOffset, quote)))
+	evidence := model.WikiRelationEvidence{
+		BookID:        bookID,
+		RelationID:    relationID,
+		ChapterNumber: chapterNumber,
+		EvidenceHash:  hex.EncodeToString(sum[:]),
+		ArtifactID:    artifactID,
+		Quote:         quote,
+		StartOffset:   startOffset,
+		EndOffset:     endOffset,
+	}
+	return db.Create(&evidence).Error
+}
+
+func findEvidenceArtifactID(db *gorm.DB, bookID uint, chapterNumber uint) (*uint, error) {
+	var artifact model.RuntimeArtifact
+	err := db.Where("book_id = ? AND chapter_number = ? AND artifact_type = ?",
+		bookID, chapterNumber, model.ArtifactEvidence).First(&artifact).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return uintPointer(artifact.ID), nil
 }
 
 func uintPointer(value uint) *uint {

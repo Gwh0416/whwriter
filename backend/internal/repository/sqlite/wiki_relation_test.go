@@ -46,6 +46,9 @@ func TestWikiRelationsMirrorFactEntitiesAndValidity(t *testing.T) {
 		Category:         "item",
 		ValidFromChapter: 3,
 		SourceChapter:    3,
+		EvidenceQuote:    "林秋握住黑铁钥匙",
+		EvidenceStart:    4,
+		EvidenceEnd:      12,
 	}
 	if err := repo.SaveFact(second); err != nil {
 		t.Fatalf("save replacement fact: %v", err)
@@ -61,6 +64,14 @@ func TestWikiRelationsMirrorFactEntitiesAndValidity(t *testing.T) {
 	}
 	if err := repo.SaveFact(resource); err != nil {
 		t.Fatalf("save literal fact: %v", err)
+	}
+	if err := repo.SaveRuntimeArtifact(&model.RuntimeArtifact{
+		BookID:        book.ID,
+		ChapterNumber: 3,
+		ArtifactType:  model.ArtifactEvidence,
+		Content:       `{"facts":[{"evidence_quote":"林秋握住黑铁钥匙"}]}`,
+	}); err != nil {
+		t.Fatalf("save evidence artifact: %v", err)
 	}
 
 	if err := repo.RefreshWikiRelations(book.ID); err != nil {
@@ -103,6 +114,21 @@ func TestWikiRelationsMirrorFactEntitiesAndValidity(t *testing.T) {
 		!hasWikiRelation(atChapterThree, "林秋", "灵石", "", "120") ||
 		hasWikiRelation(atChapterThree, "林秋", "持有", "青铜戒指", "") {
 		t.Fatalf("unexpected chapter 3 relations: %#v", atChapterThree)
+	}
+	var replacementRelationID uint
+	for _, relation := range atChapterThree {
+		if relation.SourceType == wikiRelationSourceFact && relation.ObjectName == "黑铁钥匙" {
+			replacementRelationID = relation.ID
+			break
+		}
+	}
+	evidence, err := repo.GetWikiRelationEvidence([]uint{replacementRelationID})
+	if err != nil {
+		t.Fatalf("get fact relation evidence: %v", err)
+	}
+	if len(evidence) != 1 || evidence[0].Quote != "林秋握住黑铁钥匙" ||
+		evidence[0].StartOffset != 4 || evidence[0].EndOffset != 12 || evidence[0].ArtifactID == nil {
+		t.Fatalf("unexpected fact relation evidence: %#v", evidence)
 	}
 }
 

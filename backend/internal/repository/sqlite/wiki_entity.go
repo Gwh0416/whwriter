@@ -21,6 +21,9 @@ const (
 	wikiSourceHook      = "hook"
 	wikiSourceBookState = "book_state"
 	wikiSourceFact      = "fact"
+	wikiSourceEvent     = "event"
+	wikiSourceEventPart = "event_participant"
+	wikiSourceEventLoc  = "event_location"
 )
 
 type wikiEntitySpec struct {
@@ -300,6 +303,65 @@ func collectWikiEntitySpecs(db *gorm.DB, bookID uint) ([]wikiEntitySpec, error) 
 		})
 	}
 
+	var events []model.WikiEvent
+	if err := db.Where("book_id = ?", bookID).Order("chapter_number, id").Find(&events).Error; err != nil {
+		return nil, err
+	}
+	for _, event := range events {
+		var eventEntity model.WikiEntity
+		if err := db.First(&eventEntity, event.EntityID).Error; err != nil {
+			return nil, err
+		}
+		add(wikiEntitySpec{
+			EntityType:    model.WikiEntityEvent,
+			Canonical:     eventEntity.CanonicalName,
+			Aliases:       []string{event.Title, event.EventKey},
+			Summary:       event.Summary,
+			FirstChapter:  event.ChapterNumber,
+			LastChapter:   event.ChapterNumber,
+			SourceType:    wikiSourceEvent,
+			SourceID:      event.EventKey,
+			SourceChapter: event.ChapterNumber,
+		})
+
+		var participants []model.WikiEventParticipant
+		if err := db.Where("event_id = ?", event.ID).Find(&participants).Error; err != nil {
+			return nil, err
+		}
+		for _, participant := range participants {
+			var entity model.WikiEntity
+			if err := db.First(&entity, participant.EntityID).Error; err != nil {
+				return nil, err
+			}
+			add(wikiEntitySpec{
+				EntityType:    entity.EntityType,
+				Canonical:     entity.CanonicalName,
+				Summary:       entity.Summary,
+				FirstChapter:  entity.FirstSeenChapter,
+				LastChapter:   maxWikiChapter(entity.LastSeenChapter, event.ChapterNumber),
+				SourceType:    wikiSourceEventPart,
+				SourceID:      event.EventKey + ":" + strconv.FormatUint(uint64(entity.ID), 10),
+				SourceChapter: event.ChapterNumber,
+			})
+		}
+		if event.LocationEntityID != nil {
+			var location model.WikiEntity
+			if err := db.First(&location, *event.LocationEntityID).Error; err != nil {
+				return nil, err
+			}
+			add(wikiEntitySpec{
+				EntityType:    model.WikiEntityPlace,
+				Canonical:     location.CanonicalName,
+				Summary:       location.Summary,
+				FirstChapter:  location.FirstSeenChapter,
+				LastChapter:   maxWikiChapter(location.LastSeenChapter, event.ChapterNumber),
+				SourceType:    wikiSourceEventLoc,
+				SourceID:      event.EventKey,
+				SourceChapter: event.ChapterNumber,
+			})
+		}
+	}
+
 	var facts []model.Fact
 	if err := db.Where("book_id = ?", bookID).Order("id").Find(&facts).Error; err != nil {
 		return nil, err
@@ -340,6 +402,7 @@ func syncWikiEntitySpecs(db *gorm.DB, bookID uint, specs []wikiEntitySpec) error
 	}
 	if err := db.Where("book_id = ? AND source_type IN ?", bookID, []string{
 		wikiSourceCharacter, wikiSourceHook, wikiSourceBookState, wikiSourceFact,
+		wikiSourceEvent, wikiSourceEventPart, wikiSourceEventLoc,
 	}).Delete(&model.WikiEntitySource{}).Error; err != nil {
 		return err
 	}
@@ -609,4 +672,11 @@ func firstNonEmptyWiki(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func maxWikiChapter(left, right uint) uint {
+	if left > right {
+		return left
+	}
+	return right
 }

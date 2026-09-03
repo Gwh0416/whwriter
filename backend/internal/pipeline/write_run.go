@@ -841,7 +841,8 @@ func (p *Pipeline) executeExtractingStage(ctx context.Context, run *model.Chapte
 		ctx,
 		run.BookID,
 		state.ChapterNumber,
-		fmt.Sprintf("章节标题：%s\n\n章节正文：\n%s", state.Title, state.Content),
+		state.Title,
+		state.Content,
 		writerModelID,
 	)
 	if err != nil {
@@ -883,6 +884,7 @@ func (p *Pipeline) executeSnapshotStage(ctx context.Context, run *model.ChapterW
 			"facts":      len(state.ExtractedTruth.DurableFacts),
 			"hooks":      len(state.ExtractedTruth.Hooks),
 			"evidence":   len(state.ExtractedTruth.EvidenceNotes),
+			"events":     len(state.ExtractedTruth.Events),
 		},
 	}
 	if state.Composed != nil {

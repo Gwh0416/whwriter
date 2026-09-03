@@ -254,6 +254,34 @@ func collectKnowledgeDocumentSpecs(db *gorm.DB, bookID uint) ([]knowledgeDocumen
 		})
 	}
 
+	var events []model.WikiEvent
+	if err := db.Where("book_id = ?", bookID).Order("chapter_number, id").Find(&events).Error; err != nil {
+		return nil, err
+	}
+	for _, event := range events {
+		locationName := ""
+		if event.LocationEntityID != nil {
+			var location model.WikiEntity
+			if err := db.First(&location, *event.LocationEntityID).Error; err == nil {
+				locationName = location.CanonicalName
+			}
+		}
+		content := strings.TrimSpace(fmt.Sprintf(
+			"第%d章事件：%s\n类型：%s\n事件：%s\n后果：%s\n地点：%s",
+			event.ChapterNumber, event.Title, event.EventType, event.Summary,
+			event.Consequence, locationName,
+		))
+		specs = append(specs, knowledgeDocumentSpec{
+			SourceType:       model.KnowledgeSourceEvent,
+			SourceID:         event.EventKey,
+			Title:            fmt.Sprintf("第%d章事件：%s", event.ChapterNumber, event.Title),
+			Content:          content,
+			Importance:       4,
+			ValidFromChapter: event.ChapterNumber,
+			IsActive:         true,
+		})
+	}
+
 	var evidenceArtifacts []model.RuntimeArtifact
 	if err := db.Where("book_id = ? AND artifact_type = ?", bookID, model.ArtifactEvidence).
 		Order("chapter_number").Find(&evidenceArtifacts).Error; err != nil {

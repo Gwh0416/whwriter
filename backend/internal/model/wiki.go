@@ -88,3 +88,58 @@ type WikiRelationView struct {
 	ObjectName  string         `json:"object_name,omitempty"`
 	ObjectType  WikiEntityType `json:"object_type,omitempty"`
 }
+
+type WikiEvent struct {
+	ID               uint      `json:"id" gorm:"primaryKey"`
+	BookID           uint      `json:"book_id" gorm:"uniqueIndex:idx_wiki_event_key;index;not null"`
+	EntityID         uint      `json:"entity_id" gorm:"uniqueIndex;index;not null"`
+	EventKey         string    `json:"event_key" gorm:"uniqueIndex:idx_wiki_event_key;size:64;not null"`
+	ChapterNumber    uint      `json:"chapter_number" gorm:"index;not null"`
+	Title            string    `json:"title" gorm:"size:255;not null"`
+	EventType        string    `json:"event_type" gorm:"size:64;index"`
+	Summary          string    `json:"summary" gorm:"type:longtext"`
+	Consequence      string    `json:"consequence" gorm:"type:longtext"`
+	LocationEntityID *uint     `json:"location_entity_id,omitempty" gorm:"index"`
+	EvidenceQuote    string    `json:"evidence_quote,omitempty" gorm:"type:text"`
+	EvidenceStart    int       `json:"evidence_start"`
+	EvidenceEnd      int       `json:"evidence_end"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+type WikiEventParticipant struct {
+	ID        uint      `json:"id" gorm:"primaryKey"`
+	BookID    uint      `json:"book_id" gorm:"index;not null"`
+	EventID   uint      `json:"event_id" gorm:"uniqueIndex:idx_wiki_event_participant;index;not null"`
+	EntityID  uint      `json:"entity_id" gorm:"uniqueIndex:idx_wiki_event_participant;index;not null"`
+	Role      string    `json:"role" gorm:"size:64"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type WikiRelationEvidence struct {
+	ID            uint      `json:"id" gorm:"primaryKey"`
+	BookID        uint      `json:"book_id" gorm:"index;not null"`
+	RelationID    uint      `json:"relation_id" gorm:"uniqueIndex:idx_wiki_relation_evidence;index;not null"`
+	ChapterNumber uint      `json:"chapter_number" gorm:"uniqueIndex:idx_wiki_relation_evidence;index;not null"`
+	EvidenceHash  string    `json:"-" gorm:"uniqueIndex:idx_wiki_relation_evidence;size:64;not null"`
+	ArtifactID    *uint     `json:"artifact_id,omitempty" gorm:"index"`
+	Quote         string    `json:"quote" gorm:"type:text;not null"`
+	StartOffset   int       `json:"start_offset"`
+	EndOffset     int       `json:"end_offset"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+type WikiEventDraft struct {
+	EventKey      string   `json:"event_key"`
+	Title         string   `json:"title"`
+	EventType     string   `json:"event_type"`
+	Summary       string   `json:"summary"`
+	Participants  []string `json:"participants"`
+	Location      string   `json:"location"`
+	Consequence   string   `json:"consequence"`
+	EvidenceQuote string   `json:"evidence_quote"`
+	EvidenceStart int      `json:"evidence_start"`
+	EvidenceEnd   int      `json:"evidence_end"`
+}

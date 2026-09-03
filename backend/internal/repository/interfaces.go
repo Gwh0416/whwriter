@@ -63,6 +63,9 @@ type WikiRepository interface {
 	RefreshWikiGraph(bookID uint) error
 	RefreshWikiRelations(bookID uint) error
 	ListWikiRelations(bookID uint, chapterNumber uint, entityIDs []uint, limit int) ([]model.WikiRelationView, error)
+	ReplaceChapterWikiEvents(bookID uint, chapterNumber uint, events []model.WikiEventDraft) error
+	ListWikiEvents(bookID uint, entityIDs []uint, limit int) ([]model.WikiEvent, error)
+	GetWikiRelationEvidence(relationIDs []uint) ([]model.WikiRelationEvidence, error)
 }
 
 type BookRepository interface {

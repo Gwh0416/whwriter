@@ -168,6 +168,9 @@ type Fact struct {
 	ValidFromChapter  uint      `json:"valid_from_chapter" gorm:"index;not null"`
 	ValidUntilChapter *uint     `json:"valid_until_chapter"`
 	SourceChapter     uint      `json:"source_chapter"`
+	EvidenceQuote     string    `json:"evidence_quote,omitempty" gorm:"type:text"`
+	EvidenceStart     int       `json:"evidence_start"`
+	EvidenceEnd       int       `json:"evidence_end"`
 	CreatedAt         time.Time `json:"created_at"`
 }
 

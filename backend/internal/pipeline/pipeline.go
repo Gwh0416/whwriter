@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode"
 
 	"whwriter/backend/internal/agent"
 	"whwriter/backend/internal/llm"
@@ -145,6 +146,7 @@ type extractedTruthFiles struct {
 	DurableFacts  []model.Fact
 	Hooks         []model.Hook
 	EvidenceNotes []extractedEvidenceNote
+	Events        []model.WikiEventDraft
 	Summary       *model.ChapterSummary
 }
 
@@ -498,7 +500,8 @@ func (p *Pipeline) WriteChapter(ctx context.Context, in WriteChapterInput) (*Wri
 		ctx,
 		in.BookID,
 		chapterNumber,
-		fmt.Sprintf("章节标题：%s\n\n章节正文：\n%s", title, content),
+		title,
+		content,
 		writerModelID,
 	)
 	if extractErr != nil {
@@ -512,6 +515,7 @@ func (p *Pipeline) WriteChapter(ctx context.Context, in WriteChapterInput) (*Wri
 		"facts":      len(extractedTruth.DurableFacts),
 		"hooks":      len(extractedTruth.Hooks),
 		"evidence":   len(extractedTruth.EvidenceNotes),
+		"events":     len(extractedTruth.Events),
 	}
 	if err := emit("snapshot", "正在保存章节快照和运行时产物..."); err != nil {
 		return nil, err
@@ -1209,6 +1213,68 @@ func uniqueNonEmptyStrings(values []string) []string {
 	return clean
 }
 
+func splitEntityNames(raw string) []string {
+	return uniqueNonEmptyStrings(strings.FieldsFunc(raw, func(r rune) bool {
+		switch r {
+		case ',', '，', '、', '/', '|', ';', '；':
+			return true
+		default:
+			return false
+		}
+	}))
+}
+
+func locateEvidenceQuote(content, quote string) (int, int) {
+	contentRunes := []rune(content)
+	quoteRunes := []rune(strings.TrimSpace(quote))
+	if len(contentRunes) == 0 || len(quoteRunes) == 0 {
+		return -1, -1
+	}
+	if index := indexRuneSlice(contentRunes, quoteRunes); index >= 0 {
+		return index, index + len(quoteRunes)
+	}
+
+	compactContent := make([]rune, 0, len(contentRunes))
+	positions := make([]int, 0, len(contentRunes))
+	for index, r := range contentRunes {
+		if unicode.IsSpace(r) {
+			continue
+		}
+		compactContent = append(compactContent, r)
+		positions = append(positions, index)
+	}
+	compactQuote := make([]rune, 0, len(quoteRunes))
+	for _, r := range quoteRunes {
+		if !unicode.IsSpace(r) {
+			compactQuote = append(compactQuote, r)
+		}
+	}
+	index := indexRuneSlice(compactContent, compactQuote)
+	if index < 0 {
+		return -1, -1
+	}
+	return positions[index], positions[index+len(compactQuote)-1] + 1
+}
+
+func indexRuneSlice(haystack, needle []rune) int {
+	if len(needle) == 0 || len(needle) > len(haystack) {
+		return -1
+	}
+	for start := 0; start <= len(haystack)-len(needle); start++ {
+		matched := true
+		for offset := range needle {
+			if haystack[start+offset] != needle[offset] {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return start
+		}
+	}
+	return -1
+}
+
 func settlerDeltaHasSignal(delta settlerDelta) bool {
 	if len(delta.CurrentStatePatch) > 0 || len(delta.HookOps.Upsert) > 0 || len(delta.HookOps.Resolve) > 0 ||
 		len(delta.HookOps.Defer) > 0 || len(delta.NewHookCandidates) > 0 || len(delta.Notes) > 0 {
@@ -1727,7 +1793,7 @@ func (p *Pipeline) upsertFoundation(bookID uint, fileType model.FoundationFileTy
 	})
 }
 
-func (p *Pipeline) extractTruthFiles(ctx context.Context, bookID uint, chapterNumber uint, rawOutput string, modelID uint) (*extractedTruthFiles, error) {
+func (p *Pipeline) extractTruthFiles(ctx context.Context, bookID uint, chapterNumber uint, chapterTitle, chapterContent string, modelID uint) (*extractedTruthFiles, error) {
 	extractorAny, ok := p.registry.Get("truth_extractor")
 	if !ok {
 		return nil, fmt.Errorf("truth_extractor agent not found")
@@ -1740,7 +1806,11 @@ func (p *Pipeline) extractTruthFiles(ctx context.Context, bookID uint, chapterNu
 	if book, err := p.truth.GetBook(bookID); err == nil && book != nil {
 		bookTitle = book.Title
 	}
-	extractPrompt := extractor.BuildUserPrompt(bookTitle, chapterNumber, rawOutput)
+	extractPrompt := extractor.BuildUserPrompt(
+		bookTitle,
+		chapterNumber,
+		fmt.Sprintf("章节标题：%s\n\n章节正文：\n%s", chapterTitle, chapterContent),
+	)
 
 	result, err := p.llm.ChatForAgent(ctx, extractor.Name(), modelID, extractor.SystemPrompt(), []llm.AgentMessage{
 		{Role: "user", Content: extractPrompt},
@@ -1761,10 +1831,11 @@ func (p *Pipeline) extractTruthFiles(ctx context.Context, bookID uint, chapterNu
 			Profile  string `json:"profile"`
 		} `json:"characters"`
 		DurableFacts []struct {
-			Subject   string `json:"subject"`
-			Predicate string `json:"predicate"`
-			Object    string `json:"object"`
-			Category  string `json:"category"`
+			Subject       string `json:"subject"`
+			Predicate     string `json:"predicate"`
+			Object        string `json:"object"`
+			Category      string `json:"category"`
+			EvidenceQuote string `json:"evidence_quote"`
 		} `json:"durable_facts"`
 		Hooks []struct {
 			HookID      string `json:"hook_id"`
@@ -1772,7 +1843,16 @@ func (p *Pipeline) extractTruthFiles(ctx context.Context, bookID uint, chapterNu
 			Description string `json:"description"`
 		} `json:"hooks"`
 		EvidenceNotes []extractedEvidenceNote `json:"evidence_notes"`
-		Summary       struct {
+		Events        []struct {
+			Title         string   `json:"title"`
+			EventType     string   `json:"event_type"`
+			Summary       string   `json:"summary"`
+			Participants  []string `json:"participants"`
+			Location      string   `json:"location"`
+			Consequence   string   `json:"consequence"`
+			EvidenceQuote string   `json:"evidence_quote"`
+		} `json:"events"`
+		Summary struct {
 			Title              string `json:"title"`
 			CharactersAppeared string `json:"characters_appeared"`
 			KeyEvents          string `json:"key_events"`
@@ -1792,6 +1872,7 @@ func (p *Pipeline) extractTruthFiles(ctx context.Context, bookID uint, chapterNu
 		DurableFacts:  make([]model.Fact, 0, len(extracted.DurableFacts)),
 		Hooks:         make([]model.Hook, 0, len(extracted.Hooks)),
 		EvidenceNotes: extracted.EvidenceNotes,
+		Events:        make([]model.WikiEventDraft, 0, len(extracted.Events)),
 	}
 
 	for _, c := range extracted.Characters {
@@ -1819,6 +1900,7 @@ func (p *Pipeline) extractTruthFiles(ctx context.Context, bookID uint, chapterNu
 			continue
 		}
 		category := normalizeFactCategory(f.Category)
+		evidenceStart, evidenceEnd := locateEvidenceQuote(chapterContent, f.EvidenceQuote)
 		resultData.DurableFacts = append(resultData.DurableFacts, model.Fact{
 			BookID:           bookID,
 			Subject:          strings.TrimSpace(f.Subject),
@@ -1827,6 +1909,9 @@ func (p *Pipeline) extractTruthFiles(ctx context.Context, bookID uint, chapterNu
 			Category:         category,
 			ValidFromChapter: chapterNumber,
 			SourceChapter:    chapterNumber,
+			EvidenceQuote:    strings.TrimSpace(f.EvidenceQuote),
+			EvidenceStart:    evidenceStart,
+			EvidenceEnd:      evidenceEnd,
 		})
 	}
 
@@ -1859,6 +1944,37 @@ func (p *Pipeline) extractTruthFiles(ctx context.Context, bookID uint, chapterNu
 		ChapterType:        strings.TrimSpace(extracted.Summary.ChapterType),
 	}
 
+	for index, event := range extracted.Events {
+		if strings.TrimSpace(event.Title) == "" && strings.TrimSpace(event.Summary) == "" {
+			continue
+		}
+		evidenceStart, evidenceEnd := locateEvidenceQuote(chapterContent, event.EvidenceQuote)
+		resultData.Events = append(resultData.Events, model.WikiEventDraft{
+			EventKey:      fmt.Sprintf("CH%04d-E%02d", chapterNumber, index+1),
+			Title:         strings.TrimSpace(event.Title),
+			EventType:     strings.TrimSpace(event.EventType),
+			Summary:       strings.TrimSpace(event.Summary),
+			Participants:  uniqueNonEmptyStrings(event.Participants),
+			Location:      strings.TrimSpace(event.Location),
+			Consequence:   strings.TrimSpace(event.Consequence),
+			EvidenceQuote: strings.TrimSpace(event.EvidenceQuote),
+			EvidenceStart: evidenceStart,
+			EvidenceEnd:   evidenceEnd,
+		})
+	}
+	if len(resultData.Events) == 0 {
+		resultData.Events = append(resultData.Events, model.WikiEventDraft{
+			EventKey:      fmt.Sprintf("CH%04d-E01", chapterNumber),
+			Title:         defaultString(strings.TrimSpace(extracted.Summary.Title), strings.TrimSpace(chapterTitle)),
+			EventType:     strings.TrimSpace(extracted.Summary.ChapterType),
+			Summary:       strings.TrimSpace(extracted.Summary.KeyEvents),
+			Participants:  splitEntityNames(extracted.Summary.CharactersAppeared),
+			Consequence:   strings.TrimSpace(extracted.Summary.StateChanges),
+			EvidenceStart: -1,
+			EvidenceEnd:   -1,
+		})
+	}
+
 	return resultData, nil
 }
 
@@ -1877,8 +1993,12 @@ func (p *Pipeline) persistExtractedTruthFiles(bookID uint, chapterNumber uint, e
 			return err
 		}
 	}
-	if len(extracted.EvidenceNotes) > 0 {
-		evidenceJSON, _ := json.Marshal(extracted.EvidenceNotes)
+	if hasExtractedEvidence(extracted) {
+		evidenceJSON, _ := json.Marshal(map[string]any{
+			"notes":  extracted.EvidenceNotes,
+			"facts":  extracted.DurableFacts,
+			"events": extracted.Events,
+		})
 		if err := p.truth.SaveRuntimeArtifact(&model.RuntimeArtifact{
 			BookID:        bookID,
 			ChapterNumber: chapterNumber,
@@ -1887,6 +2007,9 @@ func (p *Pipeline) persistExtractedTruthFiles(bookID uint, chapterNumber uint, e
 		}); err != nil {
 			return err
 		}
+	}
+	if err := p.truth.ReplaceChapterWikiEvents(bookID, chapterNumber, extracted.Events); err != nil {
+		return err
 	}
 	if opts.SaveHooks {
 		for i := range extracted.Hooks {
@@ -1912,6 +2035,26 @@ func (p *Pipeline) persistExtractedTruthFiles(bookID uint, chapterNumber uint, e
 		}
 	}
 	return nil
+}
+
+func hasExtractedEvidence(extracted *extractedTruthFiles) bool {
+	if extracted == nil {
+		return false
+	}
+	if len(extracted.EvidenceNotes) > 0 {
+		return true
+	}
+	for _, fact := range extracted.DurableFacts {
+		if strings.TrimSpace(fact.EvidenceQuote) != "" {
+			return true
+		}
+	}
+	for _, event := range extracted.Events {
+		if strings.TrimSpace(event.EvidenceQuote) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeFactCategory(raw string) string {

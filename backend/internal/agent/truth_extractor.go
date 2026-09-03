@@ -19,7 +19,9 @@ func (a *TruthExtractorAgent) SystemPrompt() string {
 3. 临时状态、当前目标、当前冲突不要写入 durable_facts。
 4. hooks 只记录确实形成后续承诺的未解问题、关系冲突、物品线索或人物谜题。
 5. 不要补充正文没写到的设定，不要从大纲猜后续剧情。
-6. 字段缺信息时用空数组或空字符串，不要写“未知”“待定”“同上”。`
+6. durable_facts.evidence_quote 与 events.evidence_quote 必须逐字复制正文中的连续原文，最多 120 字；没有可靠原文就留空。
+7. events 只提取本章实际发生、会影响人物关系或后续剧情的关键事件。
+8. 字段缺信息时用空数组或空字符串，不要写“未知”“待定”“同上”。`
 }
 
 func (a *TruthExtractorAgent) BuildUserPrompt(bookTitle string, chapterNumber uint, rawOutput string) string {
@@ -28,9 +30,10 @@ func (a *TruthExtractorAgent) BuildUserPrompt(bookTitle string, chapterNumber ui
 ## 输出 JSON 格式
 {
   "characters": [{"name": "角色名", "role_type": "protagonist|major|minor", "profile": "一句话简介"}],
-  "durable_facts": [{"subject": "主体", "predicate": "关系/属性", "object": "客体/值", "category": "identity|resource|item|rule|relationship"}],
+  "durable_facts": [{"subject": "主体", "predicate": "关系/属性", "object": "客体/值", "category": "identity|resource|item|rule|relationship", "evidence_quote": "正文原文"}],
   "hooks": [{"hook_id": "H01", "type": "plot|conflict|item|mystery|character", "description": "伏笔描述"}],
   "evidence_notes": [{"title": "线索标题", "kind": "clue|document|observation", "content": "章节中出现的具体细节、证据或文本内容"}],
+  "events": [{"title": "事件标题", "event_type": "conflict|discovery|decision|relationship|transition|payoff", "summary": "事件摘要", "participants": ["角色名"], "location": "地点名", "consequence": "事件造成的后果", "evidence_quote": "正文原文"}],
   "summary": {"title": "章节标题", "characters_appeared": "角色1,角色2", "key_events": "关键事件", "state_changes": "状态变化", "hook_activity": "伏笔动态", "mood": "情绪基调", "chapter_type": "过渡|冲突|高潮|收束"}
 }
 

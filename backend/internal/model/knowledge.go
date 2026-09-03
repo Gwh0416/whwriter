@@ -11,6 +11,7 @@ const (
 	KnowledgeSourceHook       KnowledgeSourceType = "hook"
 	KnowledgeSourceSummary    KnowledgeSourceType = "summary"
 	KnowledgeSourceEvidence   KnowledgeSourceType = "evidence"
+	KnowledgeSourceEvent      KnowledgeSourceType = "event"
 )
 
 // KnowledgeDocument is a rebuildable retrieval projection of an authoritative

@@ -101,6 +101,9 @@ func (r *truthFileRepo) SaveFact(f *model.Fact) error {
 						"object":         f.Object,
 						"category":       f.Category,
 						"source_chapter": f.SourceChapter,
+						"evidence_quote": f.EvidenceQuote,
+						"evidence_start": f.EvidenceStart,
+						"evidence_end":   f.EvidenceEnd,
 					}).Error
 				}
 				return nil
@@ -274,6 +277,9 @@ func (r *truthFileRepo) DeleteBookCascade(bookID uint) error {
 		if err := deleteBookKnowledgeIndex(tx, bookID); err != nil {
 			return err
 		}
+		if err := deleteBookWikiEvents(tx, bookID); err != nil {
+			return err
+		}
 		if err := deleteBookWikiRelations(tx, bookID); err != nil {
 			return err
 		}
@@ -332,6 +338,9 @@ func (r *truthFileRepo) DeleteLatestChapterCascade(bookID uint, chapterNumber ui
 			return fmt.Errorf("load previous snapshot: %w", err)
 		}
 
+		if err := deleteChapterWikiEvents(tx, bookID, chapterNumber); err != nil {
+			return err
+		}
 		if err := tx.Where("book_id = ? AND chapter_number = ?", bookID, chapterNumber).Delete(&model.RuntimeArtifact{}).Error; err != nil {
 			return err
 		}
