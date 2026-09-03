@@ -274,6 +274,9 @@ func (r *truthFileRepo) DeleteBookCascade(bookID uint) error {
 		if err := deleteBookKnowledgeIndex(tx, bookID); err != nil {
 			return err
 		}
+		if err := deleteBookWikiRelations(tx, bookID); err != nil {
+			return err
+		}
 		if err := deleteBookWikiEntities(tx, bookID); err != nil {
 			return err
 		}
@@ -375,6 +378,9 @@ func (r *truthFileRepo) DeleteLatestChapterCascade(bookID uint, chapterNumber ui
 			return err
 		}
 		if err := syncWikiEntitySpecs(tx, bookID, specs); err != nil {
+			return err
+		}
+		if err := syncWikiFactRelations(tx, bookID); err != nil {
 			return err
 		}
 		knowledgeSpecs, err := collectKnowledgeDocumentSpecs(tx, bookID)

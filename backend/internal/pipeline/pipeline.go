@@ -211,8 +211,8 @@ func (p *Pipeline) InitBook(ctx context.Context, in InitBookInput) error {
 	p.seedInitialCharacters(book.ID, sections["roles"], sections["book_rules"])
 	p.seedInitialHooks(book.ID, sections["pending_hooks"])
 	p.saveInitialBookState(book, sections)
-	if err := p.truth.RefreshWikiEntities(book.ID); err != nil {
-		return fmt.Errorf("build wiki entities: %w", err)
+	if err := p.truth.RefreshWikiGraph(book.ID); err != nil {
+		return fmt.Errorf("build wiki graph: %w", err)
 	}
 	if err := p.truth.RefreshKnowledgeIndex(book.ID); err != nil {
 		return fmt.Errorf("build knowledge index: %w", err)
@@ -572,8 +572,8 @@ func (p *Pipeline) WriteChapter(ctx context.Context, in WriteChapterInput) (*Wri
 		}); err != nil {
 			return fmt.Errorf("persist extracted truth files: %w", err)
 		}
-		if err := txTruth.RefreshWikiEntities(in.BookID); err != nil {
-			return fmt.Errorf("refresh wiki entities: %w", err)
+		if err := txTruth.RefreshWikiGraph(in.BookID); err != nil {
+			return fmt.Errorf("refresh wiki graph: %w", err)
 		}
 		if err := txTruth.RefreshKnowledgeIndex(in.BookID); err != nil {
 			return fmt.Errorf("refresh knowledge index: %w", err)

@@ -305,7 +305,7 @@ func collectWikiEntitySpecs(db *gorm.DB, bookID uint) ([]wikiEntitySpec, error) 
 		return nil, err
 	}
 	for _, fact := range facts {
-		if looksLikeWikiEntityName(fact.Subject) {
+		if strings.TrimSpace(fact.Subject) != "" {
 			add(wikiEntitySpec{
 				EntityType:    inferWikiEntityType(fact.Subject, fact.Predicate, fact.Category, true, knownTypes),
 				Canonical:     fact.Subject,

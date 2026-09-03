@@ -60,6 +60,9 @@ type WikiRepository interface {
 	ResolveWikiEntityMentions(bookID uint, text string, limit int) ([]model.WikiEntity, error)
 	ListWikiEntities(bookID uint, entityTypes []model.WikiEntityType, limit int) ([]model.WikiEntity, error)
 	GetWikiEntityAliases(entityID uint) ([]model.WikiEntityAlias, error)
+	RefreshWikiGraph(bookID uint) error
+	RefreshWikiRelations(bookID uint) error
+	ListWikiRelations(bookID uint, chapterNumber uint, entityIDs []uint, limit int) ([]model.WikiRelationView, error)
 }
 
 type BookRepository interface {

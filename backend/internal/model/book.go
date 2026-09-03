@@ -159,6 +159,8 @@ type Hook struct {
 type Fact struct {
 	ID                uint      `json:"id" gorm:"primaryKey"`
 	BookID            uint      `json:"book_id" gorm:"index:idx_book_subject;not null"`
+	SubjectEntityID   *uint     `json:"subject_entity_id,omitempty" gorm:"index"`
+	ObjectEntityID    *uint     `json:"object_entity_id,omitempty" gorm:"index"`
 	Subject           string    `json:"subject" gorm:"index:idx_book_subject;size:128;not null"`
 	Predicate         string    `json:"predicate" gorm:"size:128;not null"`
 	Object            string    `json:"object" gorm:"type:text"`

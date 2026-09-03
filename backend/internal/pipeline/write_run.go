@@ -937,8 +937,8 @@ func (p *Pipeline) executeSnapshotStage(ctx context.Context, run *model.ChapterW
 		}); err != nil {
 			return err
 		}
-		if err := txTruth.RefreshWikiEntities(run.BookID); err != nil {
-			return fmt.Errorf("refresh wiki entities: %w", err)
+		if err := txTruth.RefreshWikiGraph(run.BookID); err != nil {
+			return fmt.Errorf("refresh wiki graph: %w", err)
 		}
 		if err := txTruth.RefreshKnowledgeIndex(run.BookID); err != nil {
 			return fmt.Errorf("refresh knowledge index: %w", err)
